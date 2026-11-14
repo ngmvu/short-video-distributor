@@ -161,7 +161,62 @@ client secret lên Git.
 - API có thể trả publish ID khi video còn đang xử lý/kiểm duyệt. Khi đó báo cáo
   Telegram ghi ID thay vì link bài đăng.
 
-### 7. Facebook Reels — cấu hình nếu muốn đăng Reels
+### 7. Nhận dạng lời thoại video
+
+`faster-whisper` chạy trên máy, không tính phí theo phút; lần đầu tải model cần
+kết nối Internet. Pipeline nhận danh sách **URL HTTPS trực tiếp tới file media**
+được phép tải, tải file tối đa 500 MB, rồi lưu lời thoại có timestamp dưới dạng
+JSON trong `storage/transcripts/`. URL trang TikTok/YouTube thông thường sẽ bị từ
+chối vì trả về trang HTML, không phải file media; để bóc thoại link TikTok/YouTube
+hãy dùng mục 7b bên dưới.
+
+Tạo file UTF-8, mỗi dòng một URL trực tiếp; dòng trống và dòng bắt đầu bằng `#`
+sẽ được bỏ qua:
+
+```text
+https://your-authorized-host.example/video.mp4
+```
+
+Sau đó chạy:
+
+```powershell
+python -m pip install -r requirements.txt
+python -m core.transcription .\authorized_video_urls.txt --model small --language vi
+```
+
+Dùng `--language auto` để tự nhận diện ngôn ngữ hoặc `--output-dir` để đổi thư
+mục JSON. Video tải về được giữ trong `storage/downloads/transcription_sources/`.
+Các đoạn transcript gồm `start`, `end` (giây) và `text`.
+
+### 7b. Bóc thoại từ link TikTok → Telegram
+
+Trên Telegram (bot đang chạy listener): bấm **🎵 Bóc thoại TikTok** ở menu dưới rồi
+**dán thẳng link video** vào chat, không cần gõ lệnh. Có thể dán nhiều link trong
+một tin nhắn (tối đa 10) và dán tiếp link khác sau đó; bấm **✅ Xong** để thoát.
+Gửi một tin nhắn chỉ gồm link video TikTok thì bot cũng tự bóc thoại, kể cả khi
+chưa bấm nút. Link YouTube Shorts / video YouTube cũng được.
+
+Bot dùng `yt-dlp` tải âm thanh gốc của video (không lấy track "sound"/nhạc nền
+TikTok gắn kèm), bóc thoại bằng Whisper rồi gửi lời thoại có mốc thời gian kèm tiêu
+đề, lượt xem. File âm thanh bị xoá sau khi bóc thoại; transcript JSON lưu ở
+`storage/transcripts/`. Nút **📜 Xem log** (hoặc `/log`) cho xem từng bước tải /
+Whisper và lỗi.
+
+Chạy tay:
+
+```powershell
+python -m core.link_transcriber https://vt.tiktok.com/ZSp4Stubm/ --send-telegram
+```
+
+- Biến tuỳ chỉnh: `WHISPER_MODEL`, `TRANSCRIBE_LANGUAGE` (xem `.env.example`).
+- Link YouTube có thể báo *"Sign in to confirm you're not a bot"*. Khi đó xuất
+  cookies tài khoản YouTube của bạn ra `cookies.txt` (định dạng Netscape) và đặt
+  `YTDLP_COOKIES_FILE=cookies.txt` trong `.env`. File này là bí mật, đã có trong
+  `.gitignore`.
+- Chỉ dùng lời thoại để tham khảo; nội dung gốc thuộc bản quyền của tác giả, đừng
+  đăng lại nguyên văn.
+
+### 8. Facebook Reels — cấu hình nếu muốn đăng Reels
 
 - Tạo Meta app và cấu hình quyền/đăng nhập cho Page theo yêu cầu của Meta Graph
   API và ứng dụng của bạn.
@@ -170,7 +225,7 @@ client secret lên Git.
 - API version hiện đặt trong code là `v19.0`; hãy xác minh phiên bản còn được
   Meta hỗ trợ và quyền ứng dụng trước khi chạy thật.
 
-### 8. Các biến còn lại
+### 9. Các biến còn lại
 
 | Biến | Ý nghĩa |
 | --- | --- |

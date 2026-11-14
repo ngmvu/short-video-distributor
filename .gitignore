@@ -21,3 +21,5 @@ __pycache__/
 
 # --- Thư mục tạm & Scratch ---
 scratch/
+# yt-dlp cookies (secret)
+cookies*.txt

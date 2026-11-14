@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import logging
+import sys
 from datetime import datetime, timezone
 from typing import Any
 
@@ -825,6 +826,11 @@ async def _run(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    # stdout/stderr are redirected to storage/dashboard.log; without this Windows uses cp1252 and
+    # Vietnamese log lines end up as "Đang …" escapes.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     logging.basicConfig(
         level=get_setting("LOG_LEVEL", "INFO").upper(),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",

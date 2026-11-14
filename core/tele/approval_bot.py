@@ -31,7 +31,7 @@ from telegram.ext import (
 from telegram.helpers import escape_markdown
 
 from core.config import ROOT_DIR, STORAGE_DIR, get_setting
-from core.tele import flow_settings_bot
+from core.tele import flow_settings_bot, log_bot, transcribe_bot
 from core.gemini.idea_generator import (
     rewrite_idea_twist_or_refine,
     suggest_trending_topics,
@@ -175,6 +175,8 @@ TELEGRAM_BOT_COMMANDS = [
     BotCommand("hang_doi", "Xem các kịch bản đang chờ render"),
     BotCommand("quality", "Chọn chất lượng tải video 720p / 1080p"),
     BotCommand("flow", "Xem / đổi cấu hình Google Flow"),
+    BotCommand("thoai", "Bóc lời thoại từ link video TikTok"),
+    BotCommand("log", "Xem log: crawl thoại, lỗi, mới nhất"),
 ]
 
 
@@ -1169,7 +1171,8 @@ async def _send_choice_menu(message: Any) -> None:
 MENU_BUTTONS: tuple[tuple[tuple[str, str], ...], ...] = (
     (("✍️ Ý tưởng mới", "prompt_theme"), ("💡 Gợi ý chủ đề", "suggest_topics")),
     (("🎬 Dán kịch bản", "paste_script"), ("⚡ Prompt Flow", "direct_prompt")),
-    (("📋 Hàng đợi", "view_queue"), ("⚙️ Cấu hình", "flow_settings"), ("❌ Hủy", "cancel")),
+    (("📋 Hàng đợi", "view_queue"), ("⚙️ Cấu hình", "flow_settings")),
+    (("🎵 Bóc thoại TikTok", "tiktok_transcribe"), ("📜 Log", "view_logs"), ("❌ Hủy", "cancel")),
 )
 MENU_BUTTON_ACTIONS: dict[str, str] = {
     label: action for row in MENU_BUTTONS for label, action in row
@@ -1186,7 +1189,7 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
 
 
 # Bump when MENU_BUTTONS changes so the new bottom keyboard is pushed once automatically.
-MENU_KEYBOARD_VERSION = "2"
+MENU_KEYBOARD_VERSION = "5"
 MENU_VERSION_FILE = STORAGE_DIR / "telegram_menu_version.txt"
 
 
@@ -1227,6 +1230,7 @@ async def _run_menu_action(message: Any, action: str) -> None:
     """Shared by the bottom keyboard, the old inline menu buttons and /commands."""
     chat_id = str(message.chat_id)
     _reset_session(chat_id)  # a menu tap always starts fresh (no stale "waiting_*" state)
+    transcribe_bot.cancel(chat_id)
     session = _get_session(chat_id)
 
     if action == "prompt_theme":
@@ -1271,6 +1275,12 @@ async def _run_menu_action(message: Any, action: str) -> None:
     if action == "suggest_topics":
         await message.reply_text("⏳ Đang nhờ Gemini gợi ý chủ đề…")
         await _send_trending_topic_suggestions(message)
+        return
+    if action == "tiktok_transcribe":
+        await transcribe_bot.start_link_mode(message)
+        return
+    if action == "view_logs":
+        await log_bot.send_menu(message)
         return
     if action in {"flow_settings", "quality"}:
         await flow_settings_bot.send_menu(message)
@@ -1530,6 +1540,7 @@ async def handle_cancel_command(
     if message is None or not _is_authorized_chat(message.chat_id):
         return
     _reset_session(message.chat_id)
+    transcribe_bot.cancel(message.chat_id)
     await message.reply_text(
         "👌 Đã hủy thao tác đang chờ. Gõ /menu để mở lại bảng chọn.",
         parse_mode=ParseMode.MARKDOWN,
@@ -1594,6 +1605,9 @@ async def handle_text_message(
 
     text = message.text.strip()
     session = _get_session(chat_id)
+
+    if text not in MENU_BUTTON_ACTIONS and await transcribe_bot.handle_text(message, text):
+        return
 
     if session.get("state") == "waiting_direct":
         if text == "✅ Xong, chọn cảnh":
@@ -1742,7 +1756,54 @@ async def handle_flow_settings_callback(
     await flow_settings_bot.handle_callback(query)
 
 
+async def handle_transcribe_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    message = update.message
+    if message is None or not _is_authorized_chat(message.chat_id):
+        return
+    _reset_session(message.chat_id)
+    await transcribe_bot.handle_command(message, list(context.args or []))
+
+
+async def handle_log_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    if message is None or not _is_authorized_chat(message.chat_id):
+        return
+    view = (context.args or ["recent"])[0].lower()
+    await log_bot.send_menu(message, view if view in log_bot.VIEWS else "recent")
+
+
+async def handle_transcribe_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if query is None or query.message is None:
+        return
+    if not _is_authorized_chat(query.message.chat_id):
+        await query.answer("Bạn không có quyền sử dụng nút này.", show_alert=True)
+        return
+    _reset_session(query.message.chat_id)
+    await transcribe_bot.handle_callback(query)
+
+
+async def handle_log_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if query is None or query.message is None:
+        return
+    if not _is_authorized_chat(query.message.chat_id):
+        await query.answer("Bạn không có quyền sử dụng nút này.", show_alert=True)
+        return
+    await log_bot.handle_callback(query)
+
+
 def register_approval_handler(application: Any) -> None:
+    application.add_handler(CommandHandler(transcribe_bot.COMMANDS, handle_transcribe_command))
+    application.add_handler(CommandHandler(log_bot.COMMANDS, handle_log_command))
+    application.add_handler(
+        CallbackQueryHandler(handle_transcribe_callback, pattern=rf"^{transcribe_bot.CALLBACK_PREFIX}")
+    )
+    application.add_handler(
+        CallbackQueryHandler(handle_log_callback, pattern=rf"^{log_bot.CALLBACK_PREFIX}")
+    )
     application.add_handler(
         CommandHandler(["start", "menu", "help"], handle_menu_command)
     )
