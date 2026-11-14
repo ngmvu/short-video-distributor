@@ -1,0 +1,23 @@
+# --- Môi trường & Xác thực (Environment & Credentials) ---
+.env
+auth.json
+yt_token.json
+client_secret.json
+
+# --- Thư mục lưu trữ & Dữ liệu cục bộ (Storage & Runtime data) ---
+storage/
+!storage/downloads/
+!storage/downloads/.gitkeep
+
+# --- Môi trường ảo & Python (Python & Virtual Environments) ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# --- IDE & Công cụ phát triển ---
+.idea/
+.vscode/
+
+# --- Thư mục tạm & Scratch ---
+scratch/
