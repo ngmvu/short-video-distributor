@@ -216,6 +216,31 @@ python -m core.link_transcriber https://vt.tiktok.com/ZSp4Stubm/ --send-telegram
 - Chỉ dùng lời thoại để tham khảo; nội dung gốc thuộc bản quyền của tác giả, đừng
   đăng lại nguyên văn.
 
+### 7c. Tài khoản Flow & điều khiển server qua Telegram
+
+**👤 Tài khoản Flow** (nút ở menu dưới hoặc `/account`): liệt kê các profile Flow theo thứ tự
+dùng, kèm tên + email tài khoản Google đang đăng nhập trong Chrome của profile đó, credit đọc
+lần gần nhất và kết quả kiểm tra gần nhất.
+
+- **🔍 Kiểm tra tất cả** / **🔍 <profile>**: mở project Flow của từng profile bằng Chrome chạy ẩn
+  (headless) và báo: ✅ vào được project (kèm số credit), ❌ hết phiên (bị chuyển về trang đăng
+  nhập Google) hoặc ⚠️ đã đăng nhập nhưng không mở được project. Phiên còn tốt thì `auth.json`
+  được làm mới. Đặt `FLOW_CHECK_HEADLESS=false` nếu muốn thấy cửa sổ Chrome khi kiểm tra.
+- Profile hỏng sẽ có nút **🔑 Đăng nhập lại profile X**: Chrome của profile đó mở trên **máy
+  chủ**; đăng nhập Google, mở project Flow là phiên tự lưu (tối đa 10 phút). Bấm 🔍 để kiểm tra lại.
+
+**🖥 Server** (nút ở menu dưới hoặc `/server`): hiện dashboard, listener Telegram, các worker
+đang chạy ngầm và số kịch bản trong hàng đợi.
+
+- **⏹ Dừng worker ngầm**: dừng mọi worker `main.py` chạy nền (cả Chrome chúng đang điều khiển).
+  Dashboard, bot và cửa sổ đăng nhập Flow đang mở vẫn chạy; kịch bản vẫn nằm trong hàng đợi.
+  **▶️ Chạy hàng đợi** khởi động lại worker khi cần.
+- **🔄 Restart server**: dừng dashboard + bot + worker rồi chạy lại `web_app.py` (hoặc đúng lệnh
+  `main.py` đang chạy bot nếu không dùng dashboard), đọc lại `.env`. Bot offline 10–30 giây và
+  nhắn khi chạy lại xong. Sau restart server chạy ngầm, không còn cửa sổ terminal; log ở
+  `storage/dashboard.log` (xem bằng `/log`).
+- Cả hai thao tác đều cần bấm xác nhận, và chỉ chat trong `TELEGRAM_CHAT_ID` dùng được.
+
 ### 8. Facebook Reels — cấu hình nếu muốn đăng Reels
 
 - Tạo Meta app và cấu hình quyền/đăng nhập cho Page theo yêu cầu của Meta Graph
