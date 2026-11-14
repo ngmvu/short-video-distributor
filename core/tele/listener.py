@@ -13,6 +13,7 @@ from telegram.ext import Application
 from core.config import get_setting
 from core.flow_runner import FlowAuthError
 from core.storage import TELEGRAM_POLL_LOCK_FILE
+from core.tele import system_bot
 from core.tele.approval_bot import (
     ensure_menu_keyboard,
     register_approval_handler,
@@ -128,6 +129,7 @@ async def _run_telegram_listener_locked(
         if application.updater is None:
             raise RuntimeError("Telegram polling updater is unavailable.")
         await application.updater.start_polling()
+        await system_bot.announce_restart(application.bot)
     scheduler: AsyncIOScheduler | None = None
     skipped_after_failure: set[str] = set()
     stop_event = asyncio.Event()

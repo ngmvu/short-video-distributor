@@ -31,7 +31,7 @@ from telegram.ext import (
 from telegram.helpers import escape_markdown
 
 from core.config import ROOT_DIR, STORAGE_DIR, get_setting
-from core.tele import flow_settings_bot, log_bot, transcribe_bot
+from core.tele import flow_settings_bot, log_bot, system_bot, transcribe_bot
 from core.gemini.idea_generator import (
     rewrite_idea_twist_or_refine,
     suggest_trending_topics,
@@ -177,6 +177,8 @@ TELEGRAM_BOT_COMMANDS = [
     BotCommand("flow", "Xem / đổi cấu hình Google Flow"),
     BotCommand("thoai", "Bóc lời thoại từ link video TikTok"),
     BotCommand("log", "Xem log: crawl thoại, lỗi, mới nhất"),
+    BotCommand("account", "Tài khoản Flow: tên, kiểm tra phiên đăng nhập"),
+    BotCommand("server", "Trạng thái server, dừng worker ngầm, restart"),
 ]
 
 
@@ -1172,6 +1174,7 @@ MENU_BUTTONS: tuple[tuple[tuple[str, str], ...], ...] = (
     (("✍️ Ý tưởng mới", "prompt_theme"), ("💡 Gợi ý chủ đề", "suggest_topics")),
     (("🎬 Dán kịch bản", "paste_script"), ("⚡ Prompt Flow", "direct_prompt")),
     (("📋 Hàng đợi", "view_queue"), ("⚙️ Cấu hình", "flow_settings")),
+    (("👤 Tài khoản Flow", "flow_accounts"), ("🖥 Server", "server_control")),
     (("🎵 Bóc thoại TikTok", "tiktok_transcribe"), ("📜 Log", "view_logs"), ("❌ Hủy", "cancel")),
 )
 MENU_BUTTON_ACTIONS: dict[str, str] = {
@@ -1189,7 +1192,7 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
 
 
 # Bump when MENU_BUTTONS changes so the new bottom keyboard is pushed once automatically.
-MENU_KEYBOARD_VERSION = "5"
+MENU_KEYBOARD_VERSION = "6"
 MENU_VERSION_FILE = STORAGE_DIR / "telegram_menu_version.txt"
 
 
@@ -1284,6 +1287,12 @@ async def _run_menu_action(message: Any, action: str) -> None:
         return
     if action in {"flow_settings", "quality"}:
         await flow_settings_bot.send_menu(message)
+        return
+    if action == "flow_accounts":
+        await system_bot.send_accounts(message)
+        return
+    if action == "server_control":
+        await system_bot.send_server(message)
         return
     if action == "cancel":
         _reset_session(chat_id)
@@ -1795,7 +1804,36 @@ async def handle_log_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     await log_bot.handle_callback(query)
 
 
+async def handle_account_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    if message is None or not _is_authorized_chat(message.chat_id):
+        return
+    await system_bot.send_accounts(message)
+
+
+async def handle_server_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    if message is None or not _is_authorized_chat(message.chat_id):
+        return
+    await system_bot.send_server(message)
+
+
+async def handle_system_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if query is None or query.message is None:
+        return
+    if not _is_authorized_chat(query.message.chat_id):
+        await query.answer("Bạn không có quyền sử dụng nút này.", show_alert=True)
+        return
+    await system_bot.handle_callback(query, update.update_id)
+
+
 def register_approval_handler(application: Any) -> None:
+    application.add_handler(CommandHandler(system_bot.ACCOUNT_COMMANDS, handle_account_command))
+    application.add_handler(CommandHandler(system_bot.SERVER_COMMANDS, handle_server_command))
+    application.add_handler(
+        CallbackQueryHandler(handle_system_callback, pattern=rf"^{system_bot.CALLBACK_PREFIX}")
+    )
     application.add_handler(CommandHandler(transcribe_bot.COMMANDS, handle_transcribe_command))
     application.add_handler(CommandHandler(log_bot.COMMANDS, handle_log_command))
     application.add_handler(
