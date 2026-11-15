@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -139,11 +140,14 @@ class FlowAccountTests(unittest.TestCase):
     def test_check_summary_asks_for_manual_login(self) -> None:
         text = system_bot.check_summary(
             [
-                flow_accounts.CheckResult("a", "ok", credits=120),
+                flow_accounts.CheckResult(
+                    "a", "ok", credits=120, reset_at=int(time.time()) + 3 * 86_400 + 60, reset_text="Đặt lại …"
+                ),
                 flow_accounts.CheckResult("b", "login_required", "Bị chuyển về trang đăng nhập Google"),
             ]
         )
-        self.assertIn("120 credit", text)
+        self.assertIn("<b>120</b> credit · hồi credit", text)
+        self.assertIn("còn 3 ngày", text)
         self.assertIn("Cần đăng nhập thủ công:</b> b", text)
 
 

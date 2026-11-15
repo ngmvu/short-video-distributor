@@ -56,6 +56,8 @@ class CheckResult:
     detail: str = ""
     credits: int | None = None
     email: str = ""
+    reset_at: int | None = None
+    reset_text: str = ""
     checked_at: int = field(default_factory=lambda: int(time.time()))
 
     @property
@@ -233,14 +235,22 @@ async def check_profile(playwright: Any, profile: FlowProfile, headless: bool | 
                 f"Đã đăng nhập nhưng không thấy khung prompt của project (trang: {title or page.url})"[:300],
             )
         email = await _page_email(page)
-        credits = await flow_ui.read_credits(page)
-        if credits is not None:
-            flow_ui.save_profile_credits(profile.name, credits)
+        menu = await flow_ui.read_account_menu(page)
+        if menu.credits is not None:
+            flow_ui.save_profile_credits(profile.name, menu.credits, menu.reset_at, menu.reset_text)
         try:
             await context.storage_state(path=str(profile.auth_file))  # keep auth.json fresh
         except Exception:
             pass
-        return CheckResult(profile.name, STATUS_OK, "", credits=credits, email=email)
+        return CheckResult(
+            profile.name,
+            STATUS_OK,
+            "",
+            credits=menu.credits,
+            email=email,
+            reset_at=menu.reset_at,
+            reset_text=menu.reset_text,
+        )
     except Exception as exc:
         LOGGER.exception("[Profile: %s] Kiểm tra tài khoản Flow lỗi.", profile.name)
         return CheckResult(profile.name, STATUS_ERROR, str(exc).splitlines()[0][:200] if str(exc) else type(exc).__name__)

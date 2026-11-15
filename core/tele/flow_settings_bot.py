@@ -20,6 +20,7 @@ from core.flow_ui import (
     FLOW_SETTINGS_FORM,
     flow_setting,
     flow_setting_display,
+    format_reset,
     load_profile_credits,
 )
 
@@ -55,7 +56,11 @@ def menu_text() -> str:
         for name in sorted(credits):
             info = credits[name]
             when = time.strftime("%d/%m %H:%M", time.localtime(int(info.get("checked_at", 0))))
-            lines.append(f"• Profile {html.escape(name)}: <b>{int(info.get('credits', 0))}</b> credit ({when})")
+            reset = format_reset(info)
+            lines.append(
+                f"• Profile {html.escape(name)}: <b>{int(info.get('credits', 0))}</b> credit ({when})"
+                + (f" · {html.escape(reset)}" if reset else "")
+            )
     lines += ["", "Bấm vào mục muốn đổi 👇"]
     return "\n".join(lines)
 

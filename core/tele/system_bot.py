@@ -26,7 +26,7 @@ from telegram.error import BadRequest
 
 from core import flow_accounts, server_control
 from core.config import ROOT_DIR, STORAGE_DIR
-from core.flow_ui import load_profile_credits
+from core.flow_ui import format_reset, load_profile_credits
 
 LOGGER = logging.getLogger("short_video_distributor")
 
@@ -103,6 +103,9 @@ def accounts_text() -> str:
         credit = credits.get(account.profile)
         if credit:
             parts.append(f"{int(credit.get('credits', 0))} credit ({_when(credit.get('checked_at'))})")
+            reset = format_reset(credit)
+            if reset:
+                parts.append(html.escape(reset))
         if not account.has_session_cookie:
             parts.append("⚠️ auth.json không có cookie đăng nhập Google")
         elif account.session_expires_at and account.session_expires_at < time.time():
@@ -143,7 +146,10 @@ def check_summary(results: list[flow_accounts.CheckResult]) -> str:
     for result in results:
         line = f"• <b>{html.escape(result.profile)}</b>: {flow_accounts.STATUS_LABELS.get(result.status, result.status)}"
         if result.ok and result.credits is not None:
-            line += f" · {result.credits} credit"
+            line += f" · <b>{result.credits}</b> credit"
+            reset = format_reset({"reset_at": result.reset_at, "reset_text": result.reset_text})
+            if reset:
+                line += f" · {html.escape(reset)}"
         if result.detail and not result.ok:
             line += f"\n    <i>{html.escape(result.detail)[:200]}</i>"
         lines.append(line)
