@@ -147,6 +147,54 @@ def load_whisper_model(model_size: str) -> Any:
     return WhisperModel(model_size, device="cpu", compute_type=compute_type, cpu_threads=cpu_threads)
 
 
+_ONNX_EXIT_HINTS = {
+    3221225477: "0xC0000005 access violation — thường do Visual C++ Redistributable cũ",
+    3221225781: "0xC0000135 thiếu DLL — cần cài Visual C++ Redistributable x64",
+    3221225501: "0xC000001D CPU không hỗ trợ tập lệnh",
+}
+_vad_ok: bool | None = None
+
+
+def probe_onnxruntime(timeout: float = 120.0) -> tuple[bool, str]:
+    """Import onnxruntime in a child process. On some Windows machines the import crashes the
+    interpreter natively (no Python exception), so it must never be tried in the bot process first."""
+    import subprocess
+    import sys
+
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", "import onnxruntime"],
+            capture_output=True,
+            timeout=timeout,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return False, f"không chạy được phép thử: {exc}"
+    if result.returncode == 0:
+        return True, ""
+    code = result.returncode & 0xFFFFFFFF
+    stderr = result.stderr.decode("utf-8", errors="replace").strip().splitlines()
+    hint = _ONNX_EXIT_HINTS.get(code) or (stderr[-1] if stderr else f"mã thoát {code}")
+    return False, hint
+
+
+def vad_enabled() -> bool:
+    """VAD (silence filter) needs onnxruntime. WHISPER_VAD=false turns it off; otherwise it is
+    used only when onnxruntime imports cleanly (checked once per process)."""
+    global _vad_ok
+    if (os.getenv("WHISPER_VAD") or "true").strip().lower() in {"0", "false", "no", "off"}:
+        return False
+    if _vad_ok is None:
+        _vad_ok, reason = probe_onnxruntime()
+        if not _vad_ok:
+            LOGGER.warning(
+                "Tắt bộ lọc VAD của Whisper vì onnxruntime không nạp được (%s). Bóc thoại vẫn chạy, "
+                "chỉ chậm hơn ở đoạn im lặng. Cài https://aka.ms/vs/17/release/vc_redist.x64.exe để bật lại.",
+                reason,
+            )
+    return _vad_ok
+
+
 def transcribe_media(
     model: Any,
     media_path: Path,
@@ -159,7 +207,7 @@ def transcribe_media(
     segments, info = model.transcribe(
         str(media_path),
         language=language or None,
-        vad_filter=True,
+        vad_filter=vad_enabled(),
     )
     transcript_segments = [
         {

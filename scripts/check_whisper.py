@@ -81,6 +81,9 @@ def main() -> int:
     total, free = ram_gb()
     if total:
         print(f"  RAM: {total:.1f} GB, còn trống {free:.1f} GB", flush=True)
+        if free < 1.5:
+            print("  ⚠️ RAM trống ít: model 'small' cần ~1 GB. Nên đặt WHISPER_MODEL=base (≈0.3 GB) "
+                  "hoặc tiny trong .env, và đóng bớt Chrome.", flush=True)
     print(f"  Python {sys.version.split()[0]} ({platform.architecture()[0]}) · {sys.executable}", flush=True)
     features = cpu_features()
     if features:
@@ -110,13 +113,17 @@ def main() -> int:
     except Exception as exc:
         fail("Không import được faster_whisper. Chạy: python -m pip install -r requirements.txt", exc)
         return 1
-    try:
-        import onnxruntime
+    from core.transcription import probe_onnxruntime
 
-        ok(f"onnxruntime {onnxruntime.__version__}")
-    except Exception as exc:
-        fail("Không import được onnxruntime (dùng cho bộ lọc VAD). Cài Visual C++ Redistributable x64 "
-             "hoặc: python -m pip install --force-reinstall onnxruntime", exc)
+    # in a child process: on some machines this import kills Python without any error message
+    onnx_ok, onnx_reason = probe_onnxruntime()
+    if onnx_ok:
+        ok("onnxruntime nạp được (bộ lọc VAD dùng được)")
+    else:
+        fail(f"onnxruntime làm Python crash khi import: {onnx_reason}.")
+        print("  👉 Cài/cập nhật Visual C++ Redistributable x64 bản mới nhất: "
+              "https://aka.ms/vs/17/release/vc_redist.x64.exe rồi khởi động lại máy.\n"
+              "     Trong lúc chờ, bot tự tắt VAD nên bóc thoại vẫn chạy được.", flush=True)
 
     step(f"Tải / nạp model '{args.model}' (lần đầu cần Internet tới huggingface.co)")
     from core.transcription import load_whisper_model
@@ -151,6 +158,9 @@ def main() -> int:
         fail("Whisper lỗi khi chạy.", exc)
         return 1
 
+    if not onnx_ok:
+        print("\n⚠️ Whisper chạy được nhưng KHÔNG có bộ lọc VAD (onnxruntime lỗi, xem ở trên).", flush=True)
+        return 2
     step("Chạy thử với bộ lọc VAD (giống bot Telegram)")
     try:
         segments, _ = model.transcribe(audio, language="vi", vad_filter=True)

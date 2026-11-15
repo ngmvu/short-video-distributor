@@ -81,5 +81,36 @@ class TranscriptionTests(unittest.TestCase):
         model.transcribe.assert_called_once()
 
 
+class VadProbeTests(unittest.TestCase):
+    def setUp(self) -> None:
+        import core.transcription as transcription
+
+        self.transcription = transcription
+        transcription._vad_ok = None
+
+    def tearDown(self) -> None:
+        self.transcription._vad_ok = None
+
+    def test_native_crash_on_import_disables_vad(self) -> None:
+        crashed = SimpleNamespace(returncode=3221225477, stderr=b"")
+        with patch("subprocess.run", return_value=crashed) as run, patch.dict("os.environ", {"WHISPER_VAD": ""}):
+            ok, reason = self.transcription.probe_onnxruntime()
+            self.assertFalse(ok)
+            self.assertIn("0xC0000005", reason)
+            self.assertFalse(self.transcription.vad_enabled())
+            self.assertFalse(self.transcription.vad_enabled())  # probed once, then cached
+        self.assertEqual(run.call_count, 2)
+
+    def test_vad_can_be_turned_off_without_probing(self) -> None:
+        with patch("subprocess.run") as run, patch.dict("os.environ", {"WHISPER_VAD": "false"}):
+            self.assertFalse(self.transcription.vad_enabled())
+        run.assert_not_called()
+
+    def test_vad_on_when_onnxruntime_imports(self) -> None:
+        fine = SimpleNamespace(returncode=0, stderr=b"")
+        with patch("subprocess.run", return_value=fine), patch.dict("os.environ", {"WHISPER_VAD": ""}):
+            self.assertTrue(self.transcription.vad_enabled())
+
+
 if __name__ == "__main__":
     unittest.main()
