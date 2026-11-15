@@ -3,11 +3,16 @@ from __future__ import annotations
 import asyncio
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 import numpy as np
 
@@ -171,10 +176,10 @@ class WatermarkBotTests(unittest.TestCase):
     def test_too_large_upload_is_rejected_with_hint(self) -> None:
         watermark_bot._waiting.add("1")
         message = SimpleNamespace(
-            chat_id=1, video=SimpleNamespace(file_size=30 * 1024 * 1024), caption="", reply_text=AsyncMock()
+            chat_id=1, video=SimpleNamespace(file_size=60 * 1024 * 1024), caption="", reply_text=AsyncMock()
         )
         self.assertTrue(_run(watermark_bot.handle_video(message)))
-        self.assertIn("20 MB", message.reply_text.await_args.args[0])
+        self.assertIn("50 MB", message.reply_text.await_args.args[0])
 
 
 if __name__ == "__main__":

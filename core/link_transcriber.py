@@ -180,6 +180,18 @@ def get_whisper_model(model_size: str) -> Any:
         return _model_cache[model_size]
 
 
+def release_whisper_models() -> None:
+    """Free cached Whisper models after a batch so idle bot processes don't hold ~500MB+ of RAM."""
+    if (os.getenv("WHISPER_KEEP_LOADED") or "false").strip().lower() in {"1", "true", "yes", "on"}:
+        return
+    import gc
+
+    with _model_lock:
+        if _model_cache:
+            _model_cache.clear()
+            gc.collect()
+
+
 def _apply_info(video: VideoInfo, info: dict[str, Any]) -> None:
     video.video_id = str(info.get("id") or video.video_id)
     video.title = str(info.get("title") or video.title).strip()
@@ -202,8 +214,9 @@ def transcribe_link(
         media_path, info = download_audio(url, download_dir)
         _apply_info(video, info)
         try:
+            active_model = model if model is not None else get_whisper_model(model_size)
             result.transcript_path = transcribe_media(
-                model,
+                active_model,
                 media_path,
                 url,
                 model_size,
@@ -249,14 +262,17 @@ def transcribe_links(
 ) -> list[TranscriptResult]:
     if not links:
         return []
-    model_size = model_size or os.getenv("WHISPER_MODEL", "small") or "small"
-    whisper = model if model is not None else get_whisper_model(model_size)
+    model_size = model_size or get_setting("WHISPER_MODEL", "base") or "base"
     results = []
-    for index, url in enumerate(links, 1):
-        LOGGER.info("Bóc thoại %d/%d: %s", index, len(links), url)
-        results.append(
-            transcribe_link(url, whisper, model_size, language, download_dir, output_dir)
-        )
+    try:
+        for index, url in enumerate(links, 1):
+            LOGGER.info("Bóc thoại %d/%d: %s", index, len(links), url)
+            results.append(
+                transcribe_link(url, model, model_size, language, download_dir, output_dir)
+            )
+    finally:
+        if model is None:
+            release_whisper_models()
     return results
 
 

@@ -31,7 +31,7 @@ PROFILES: dict[tuple[int, int], tuple[str, tuple[int, int]]] = {
     (1080, 1920): ("gemini_sparkle_1080x1920.npy", (858, 1698)),
     (720, 1280): ("gemini_sparkle_720x1280.npy", (572, 1132)),
 }
-MIN_MATCH_SCORE = 0.5  # normalized cross-correlation of the mask with the mean frame
+MIN_MATCH_SCORE = 0.4  # normalized cross-correlation of the mask with the mean frame
 NOLOGO_SUFFIX = "-nologo"
 
 

@@ -30,7 +30,7 @@ LOGGER = logging.getLogger("short_video_distributor.watermark_bot")
 COMMANDS = ["xoalogo", "xoa_logo", "watermark"]
 CALLBACK_PREFIX = "xoalogo:"
 UPLOAD_DIR = STORAGE_DIR / "watermark"
-MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024  # Bot API getFile limit
+MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024  # 50 MB limit
 MAX_SEND_BYTES = 50 * 1024 * 1024  # Bot API upload limit
 _waiting: set[str] = set()
 _job_lock = asyncio.Lock()
@@ -38,7 +38,7 @@ _background_tasks: set[asyncio.Task[None]] = set()
 
 PROMPT = (
     "🧽 <b>Xóa logo ✦ Gemini/Veo</b> (không cắt khung, giữ nguyên độ phân giải)\n"
-    "📎 Gửi video vào đây (dạng video hoặc file, tối đa 20 MB),\n"
+    "📎 Gửi video vào đây (dạng video hoặc file, tối đa 50 MB),\n"
     "hoặc gửi tên / đường dẫn file trong <code>storage/downloads</code>.\n"
     "Bấm ✅ Xong khi không cần nữa."
 )
@@ -120,7 +120,7 @@ async def handle_video(message: Any, force: bool = False) -> bool:
     size = int(getattr(attachment, "file_size", 0) or 0)
     if size > MAX_DOWNLOAD_BYTES:
         await message.reply_text(
-            f"⚠️ Video {size / 1024 / 1024:.0f} MB, vượt giới hạn 20 MB bot được tải về. "
+            f"⚠️ Video {size / 1024 / 1024:.0f} MB, vượt giới hạn 50 MB bot được tải về. "
             "Hãy gửi tên file trong <code>storage/downloads</code> thay vì gửi video.",
             parse_mode=ParseMode.HTML,
         )
@@ -171,11 +171,35 @@ async def _run_and_reply(
     async with _job_lock:
         try:
             if local_path is None:
-                UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-                name = Path(str(getattr(attachment, "file_name", "") or "")).stem or "video"
-                local_path = UPLOAD_DIR / f"{name[:60]}-{uuid.uuid4().hex[:8]}.mp4"
-                tg_file = await attachment.get_file()
-                await tg_file.download_to_drive(custom_path=local_path)
+                raw_name = str(getattr(attachment, "file_name", "") or "").strip()
+                matched_local = resolve_local_video(raw_name) if raw_name else None
+                if matched_local is not None:
+                    local_path = matched_local
+                else:
+                    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+                    name = Path(raw_name).stem or "video"
+                    local_path = UPLOAD_DIR / f"{name[:60]}-{uuid.uuid4().hex[:8]}.mp4"
+                    try:
+                        tg_file = await attachment.get_file()
+                        await tg_file.download_to_drive(custom_path=local_path)
+                    except BadRequest as exc:
+                        size = int(getattr(attachment, "file_size", 0) or 0)
+                        by_size = (
+                            next(
+                                (
+                                    f
+                                    for f in DOWNLOADS_DIR.glob("*.mp4")
+                                    if f.is_file() and f.stat().st_size == size
+                                ),
+                                None,
+                            )
+                            if size > 0 and DOWNLOADS_DIR.is_dir()
+                            else None
+                        )
+                        if by_size is not None:
+                            local_path = by_size
+                        else:
+                            raise
             result = await asyncio.to_thread(remove_gemini_watermark, local_path)
         except WatermarkError as exc:
             await _edit(status, f"❌ {html.escape(str(exc))}")

@@ -48,7 +48,7 @@ _background_tasks: set[asyncio.Task[None]] = set()
 
 PROMPT = (
     "📥 <b>Import video</b>\n"
-    "Gửi video vào đây (dạng video hoặc file, tối đa 20 MB),\n"
+    "Gửi video vào đây (dạng video hoặc file, tối đa 50 MB),\n"
     "hoặc dán đường dẫn file trên máy (vd: <code>E:\\Videos\\clip.mp4</code>).\n"
     "Video được lưu vào <code>storage/downloads</code> (có luôn trên Web UI), "
     "sau đó chọn: 🧽 xóa logo, ✨ tạo caption & đăng MXH."
@@ -300,7 +300,7 @@ async def handle_video(message: Any) -> bool:
     size = int(getattr(attachment, "file_size", 0) or 0)
     if size > watermark_bot.MAX_DOWNLOAD_BYTES:
         await message.reply_text(
-            f"⚠️ Video {size / 1024 / 1024:.0f} MB vượt giới hạn 20 MB bot được tải về. "
+            f"⚠️ Video {size / 1024 / 1024:.0f} MB vượt giới hạn 50 MB bot được tải về. "
             "Hãy dán đường dẫn file trên máy (sau /import) thay vì gửi video."
         )
         return True
