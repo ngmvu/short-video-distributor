@@ -469,21 +469,88 @@ def parse_credits(text: str) -> int | None:
     return None
 
 
-async def read_credits(page: Any) -> int | None:
-    """Open the account (PRO) menu, read 'N tín dụng Google Flow', close it. None when not found."""
+# vi: "Đặt lại lúc 01:27 vào 7 thg 12" · en (best effort): "Resets at 1:27 AM on Dec 7"
+_RESET_LINE_RE = re.compile(r"^\s*(?:đặt lại|resets?|renews?)\b.*$", re.IGNORECASE | re.MULTILINE)
+_RESET_VI_RE = re.compile(
+    r"(\d{1,2}):(\d{2}).*?(\d{1,2})\s*(?:thg|tháng)\s*(\d{1,2})(?:\D+(\d{4}))?", re.IGNORECASE
+)
+_MONTHS_EN = {
+    m: i
+    for i, m in enumerate(("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"), 1)
+}
+_RESET_EN_TIME_RE = re.compile(r"(\d{1,2}):(\d{2})\s*([AP]M)?", re.IGNORECASE)
+_RESET_EN_DATE_RE = re.compile(
+    r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:,?\s*(\d{4}))?", re.IGNORECASE
+)
+
+
+@dataclass(frozen=True)
+class AccountMenuInfo:
+    credits: int | None
+    reset_at: int | None = None  # epoch seconds of the next credit reset
+    reset_text: str = ""  # the raw line shown by Flow, kept even when the date cannot be parsed
+
+
+def parse_reset(text: str, now: float | None = None) -> tuple[int | None, str]:
+    """Credit-reset line of the account menu -> (epoch of the reset, raw line).
+
+    Flow omits the year, so the next occurrence after `now` is used."""
+    import time
+    from datetime import datetime, timedelta
+
+    match = _RESET_LINE_RE.search(text or "")
+    if not match:
+        return None, ""
+    line = match.group(0).strip()
+    hour = minute = day = month = None
+    year: int | None = None
+    vi = _RESET_VI_RE.search(line)
+    if vi:
+        hour, minute, day, month = (int(vi.group(i)) for i in range(1, 5))
+        year = int(vi.group(5)) if vi.group(5) else None
+    else:
+        en_time, en_date = _RESET_EN_TIME_RE.search(line), _RESET_EN_DATE_RE.search(line)
+        if en_time and en_date:
+            hour, minute = int(en_time.group(1)), int(en_time.group(2))
+            meridiem = (en_time.group(3) or "").upper()
+            if meridiem == "PM" and hour < 12:
+                hour += 12
+            elif meridiem == "AM" and hour == 12:
+                hour = 0
+            month, day = _MONTHS_EN[en_date.group(1).lower()[:3]], int(en_date.group(2))
+            year = int(en_date.group(3)) if en_date.group(3) else None
+    if hour is None:
+        return None, line
+    current = datetime.fromtimestamp(time.time() if now is None else now)
+    try:
+        when = datetime(year or current.year, month, day, hour, minute)
+        if year is None and when < current - timedelta(days=1):
+            when = when.replace(year=current.year + 1)
+    except ValueError:
+        return None, line
+    return int(when.timestamp()), line
+
+
+def parse_account_menu(text: str, now: float | None = None) -> AccountMenuInfo:
+    reset_at, reset_text = parse_reset(text, now)
+    return AccountMenuInfo(parse_credits(text), reset_at, reset_text)
+
+
+async def read_account_menu(page: Any) -> AccountMenuInfo:
+    """Open the account (PRO) menu, read credits + credit-reset time, close it."""
     button = page.locator(ACCOUNT_MENU_BUTTON).first
     try:
         if not await button.count():
-            return None
+            return AccountMenuInfo(None)
         await button.click(timeout=5_000)
         await asyncio.sleep(1.5)
         text = await page.evaluate(
             "() => { const o = document.querySelector('.cdk-overlay-container'); return o ? o.innerText : ''; }"
         )
-        return parse_credits(text)
+        return parse_account_menu(text)
     except Exception as exc:
         LOGGER.warning("Không đọc được số credit Flow: %s", exc)
-        return None
+        return AccountMenuInfo(None)
     finally:
         try:
             await page.keyboard.press("Escape")
@@ -493,7 +560,14 @@ async def read_credits(page: Any) -> int | None:
         await close_overlays(page)
 
 
-def save_profile_credits(profile_name: str, credits: int) -> None:
+async def read_credits(page: Any) -> int | None:
+    """Credits shown in the account menu ('N tín dụng Google Flow'). None when not found."""
+    return (await read_account_menu(page)).credits
+
+
+def save_profile_credits(
+    profile_name: str, credits: int, reset_at: int | None = None, reset_text: str = ""
+) -> None:
     import json
     import time
 
@@ -504,11 +578,42 @@ def save_profile_credits(profile_name: str, credits: int) -> None:
         data = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
     except (OSError, ValueError):
         data = {}
-    data[profile_name] = {"credits": credits, "checked_at": int(time.time())}
+    now = int(time.time())
+    entry: dict[str, Any] = {"credits": credits, "checked_at": now}
+    previous = data.get(profile_name) if isinstance(data.get(profile_name), dict) else {}
+    if reset_at or reset_text:
+        entry.update({"reset_at": reset_at, "reset_text": reset_text})
+    elif previous.get("reset_at") and int(previous["reset_at"]) > now:
+        # not read this time: keep the known reset moment while it is still ahead
+        entry.update({"reset_at": previous["reset_at"], "reset_text": previous.get("reset_text", "")})
+    data[profile_name] = entry
     try:
         path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     except OSError:
         pass
+
+
+def format_reset(info: dict[str, Any] | None, now: float | None = None) -> str:
+    """'hồi credit 01:27 07/12 (còn 21 ngày)' from a flow_credits.json entry; '' when unknown."""
+    import time
+
+    if not info:
+        return ""
+    reset_at = info.get("reset_at")
+    if not reset_at:
+        return f"hồi credit: {info['reset_text']}" if info.get("reset_text") else ""
+    now = time.time() if now is None else now
+    stamp = time.strftime("%H:%M %d/%m", time.localtime(int(reset_at)))
+    left = int(reset_at) - now
+    if left <= 0:
+        return f"đã tới mốc hồi credit {stamp} — kiểm tra lại"
+    if left >= 86_400:
+        remaining = f"còn {int(left // 86_400)} ngày"
+    elif left >= 3_600:
+        remaining = f"còn {int(left // 3_600)} giờ"
+    else:
+        remaining = f"còn {max(1, int(left // 60))} phút"
+    return f"hồi credit {stamp} ({remaining})"
 
 
 def load_profile_credits() -> dict[str, dict[str, int]]:

@@ -139,7 +139,12 @@ def load_whisper_model(model_size: str) -> Any:
         raise RuntimeError(
             "faster-whisper is not installed. Run: python -m pip install -r requirements.txt"
         ) from exc
-    return WhisperModel(model_size, device="cpu", compute_type="int8")
+    # Weak CPUs: WHISPER_COMPUTE_TYPE=int8 (default, fastest) | float32 (if int8 crashes);
+    # WHISPER_CPU_THREADS=0 lets CTranslate2 pick, or set it to the number of physical cores.
+    compute_type = (os.getenv("WHISPER_COMPUTE_TYPE") or "int8").strip()
+    threads_raw = (os.getenv("WHISPER_CPU_THREADS") or "0").strip()
+    cpu_threads = int(threads_raw) if threads_raw.isdigit() else 0
+    return WhisperModel(model_size, device="cpu", compute_type=compute_type, cpu_threads=cpu_threads)
 
 
 def transcribe_media(

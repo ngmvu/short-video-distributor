@@ -398,6 +398,6 @@ scheduler, or run the listener and processing command under your process manager
 #   s h o r t - v i d e o 
  
  
-git daemon --reuseaddr --base-path=. --export-all
-git remote add lan_origin git://192.168.1.76/short-video-distributor.git
-git pull lan_origin main"# short-video-distributor" 
+
+.\.venv\Scripts\Activate.ps1
+python scripts\check_whisper.py

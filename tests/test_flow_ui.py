@@ -56,15 +56,53 @@ class FlowCreditsTests(unittest.TestCase):
         self.assertEqual(flow_ui.parse_credits("12 credits remaining"), 12)
         self.assertIsNone(flow_ui.parse_credits("Đặt lại lúc 01:27 vào 7 thg 12"))
 
+    def test_parse_reset_time_from_account_menu(self) -> None:
+        from datetime import datetime
+
+        now = datetime(2026, 11, 15, 10, 0).timestamp()
+        menu = "Nguyễn Minh Vũ\n1 tín dụng Google Flow\nĐặt lại lúc 01:27 vào 7 thg 12\nNâng cấp"
+        info = flow_ui.parse_account_menu(menu, now)
+        self.assertEqual(info.credits, 1)
+        self.assertEqual(info.reset_at, int(datetime(2026, 12, 7, 1, 27).timestamp()))
+        self.assertEqual(info.reset_text, "Đặt lại lúc 01:27 vào 7 thg 12")
+        # a date already passed this year means next year
+        reset_at, _ = flow_ui.parse_reset("Đặt lại lúc 08:00 vào 3 thg 1", now)
+        self.assertEqual(reset_at, int(datetime(2027, 1, 3, 8, 0).timestamp()))
+        reset_at, _ = flow_ui.parse_reset("Resets at 1:27 PM on Dec 7", now)
+        self.assertEqual(reset_at, int(datetime(2026, 12, 7, 13, 27).timestamp()))
+        self.assertEqual(flow_ui.parse_reset("491 tín dụng Google Flow", now), (None, ""))
+
+    def test_format_reset(self) -> None:
+        from datetime import datetime
+
+        now = datetime(2026, 11, 15, 10, 0).timestamp()
+        reset = int(datetime(2026, 12, 7, 1, 27).timestamp())
+        self.assertEqual(flow_ui.format_reset({"reset_at": reset}, now), "hồi credit 01:27 07/12 (còn 21 ngày)")
+        self.assertIn("còn 3 giờ", flow_ui.format_reset({"reset_at": now + 3 * 3600 + 60}, now))
+        self.assertIn("kiểm tra lại", flow_ui.format_reset({"reset_at": now - 5}, now))
+        self.assertEqual(flow_ui.format_reset({"credits": 5}, now), "")
+
+    def test_save_keeps_known_reset_when_not_read(self) -> None:
+        import tempfile
+        import time
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmp, patch("core.config.STORAGE_DIR", Path(tmp)):
+            flow_ui.save_profile_credits("a", 10, int(time.time()) + 3600, "Đặt lại …")
+            flow_ui.save_profile_credits("a", 9)
+            info = flow_ui.load_profile_credits()["a"]
+        self.assertEqual(info["credits"], 9)
+        self.assertEqual(info["reset_text"], "Đặt lại …")
+
     def _run_check(self, credits, threshold="20"):
         import asyncio
 
         from core import flow_runner
 
         async def fake_read(_page):
-            return credits
+            return flow_ui.AccountMenuInfo(credits)
 
-        with patch.object(flow_ui, "read_credits", fake_read), \
+        with patch.object(flow_ui, "read_account_menu", fake_read), \
                 patch.object(flow_ui, "get_runtime_pref", return_value=threshold), \
                 patch.object(flow_ui, "save_profile_credits"):
             return asyncio.run(flow_runner._ensure_enough_credits(object(), "d"))

@@ -484,14 +484,15 @@ async def _ensure_enough_credits(page: Any, profile_name: str) -> None:
     threshold = flow_ui.min_credits()
     if threshold <= 0:
         return
-    credits = await flow_ui.read_credits(page)
+    menu = await flow_ui.read_account_menu(page)
+    credits = menu.credits
     if credits is None:
         LOGGER.warning(
             "[Profile: %s] Không đọc được số credit Flow; vẫn tiếp tục tạo.", profile_name or "?"
         )
         return
     if profile_name:
-        flow_ui.save_profile_credits(profile_name, credits)
+        flow_ui.save_profile_credits(profile_name, credits, menu.reset_at, menu.reset_text)
     if credits < threshold:
         raise FlowCreditExhaustedError(
             f"Profile '{profile_name}' chỉ còn {credits} credit (< {threshold})."
