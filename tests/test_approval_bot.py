@@ -1,5 +1,5 @@
-﻿from typing import Any
-from __future__ import annotations
+﻿from __future__ import annotations
+from typing import Any
 
 import unittest
 
@@ -381,7 +381,10 @@ class TelegramInteractiveBotTests(unittest.TestCase):
         )
         self.assertEqual(
             [command.command for command in TELEGRAM_BOT_COMMANDS],
-            ["gemini", "choice", "new", "direct", "hang_doi", "quality", "flow"],
+            [
+                "gemini", "choice", "new", "direct", "hang_doi", "quality", "flow",
+                "thoai", "import", "xoalogo", "log", "account", "server",
+            ],
         )
 
     def test_command_registration_includes_new_and_choice_aliases(self) -> None:
@@ -494,7 +497,8 @@ class TelegramInteractiveBotTests(unittest.TestCase):
         self.assertEqual(
             labels,
             ["✍️ Ý tưởng mới", "💡 Gợi ý chủ đề", "🎬 Dán kịch bản", "⚡ Prompt Flow",
-             "📋 Hàng đợi", "⚙️ Cấu hình", "❌ Hủy"],
+             "📋 Hàng đợi", "⚙️ Cấu hình", "👤 Tài khoản Flow", "🖥 Server",
+             "📥 Import video", "🧽 Xóa logo ✦", "🎵 Bóc thoại TikTok", "📜 Log", "❌ Hủy"],
         )
         self.assertNotIn("Đăng nhập Flow", args[0])
 

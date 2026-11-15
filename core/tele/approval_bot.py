@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 import re
 import subprocess
@@ -20,7 +21,7 @@ from telegram import (
     Update,
 )
 from telegram.constants import ParseMode
-from telegram.error import NetworkError, TimedOut
+from telegram.error import BadRequest, NetworkError, TimedOut
 from telegram.ext import (
     CallbackQueryHandler,
     CommandHandler,
@@ -30,8 +31,9 @@ from telegram.ext import (
 )
 from telegram.helpers import escape_markdown
 
+from core import server_control
 from core.config import ROOT_DIR, STORAGE_DIR, get_setting
-from core.tele import flow_settings_bot, log_bot, system_bot, transcribe_bot
+from core.tele import flow_settings_bot, import_bot, log_bot, system_bot, transcribe_bot, watermark_bot
 from core.gemini.idea_generator import (
     rewrite_idea_twist_or_refine,
     suggest_trending_topics,
@@ -50,6 +52,8 @@ from core.storage import (
     append_pending_draft,
     approve_draft,
     enqueue_draft_with_options,
+    clear_approved_queue,
+    delete_queue_item,
     promote_approved_queue_item,
     read_json,
     save_drafts,
@@ -176,6 +180,8 @@ TELEGRAM_BOT_COMMANDS = [
     BotCommand("quality", "Chọn chất lượng tải video 720p / 1080p"),
     BotCommand("flow", "Xem / đổi cấu hình Google Flow"),
     BotCommand("thoai", "Bóc lời thoại từ link video TikTok"),
+    BotCommand("import", "Import video từ Telegram → xóa logo / đăng MXH"),
+    BotCommand("xoalogo", "Xóa logo ✦ Gemini/Veo khỏi video, không cắt khung"),
     BotCommand("log", "Xem log: crawl thoại, lỗi, mới nhất"),
     BotCommand("account", "Tài khoản Flow: tên, kiểm tra phiên đăng nhập"),
     BotCommand("server", "Trạng thái server, dừng worker ngầm, restart"),
@@ -749,6 +755,67 @@ async def handle_approval_callback(
         )
         return
 
+    if action == "queue_del":
+        item_id = _queue_run_cache.get(draft_id)
+        if not item_id:
+            await query.answer("Nút đã hết hạn. Mở lại 📋 Hàng đợi.", show_alert=True)
+            return
+        removed = await asyncio.to_thread(delete_queue_item, item_id)
+        busy = await asyncio.to_thread(server_control.worker_lock_busy)
+        if not removed:
+            await query.answer("Mục này không còn trong hàng đợi.")
+        elif busy:
+            await query.answer(
+                "🗑 Đã xoá khỏi hàng đợi. Nếu worker đang render đúng kịch bản này thì nó vẫn chạy nốt; "
+                "dừng hẳn bằng 🗑 Xoá tất cả hoặc /server → ⏹ Dừng worker.",
+                show_alert=True,
+            )
+        else:
+            await query.answer("🗑 Đã xoá khỏi hàng đợi.")
+        LOGGER.info("🗑 Telegram: xoá kịch bản %s khỏi hàng đợi (removed=%s).", item_id, removed)
+        await _edit_queue_status(query)
+        return
+
+    if action == "queue_clear":
+        if draft_id == "ask":
+            count = len(read_json(APPROVED_QUEUE_FILE, []) or [])
+            await query.answer()
+            await query.edit_message_text(
+                f"🗑 <b>Xoá tất cả {count} kịch bản trong hàng đợi?</b>\n"
+                "Worker đang render (nếu có) sẽ bị dừng để không tạo tiếp. Kịch bản quay về trạng thái "
+                "chờ duyệt, không bị mất.",
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [
+                            InlineKeyboardButton("✅ Xoá hết", callback_data="queue_clear:yes"),
+                            InlineKeyboardButton("⬅️ Thôi", callback_data="queue_clear:no"),
+                        ]
+                    ]
+                ),
+            )
+            return
+        if draft_id == "yes":
+            if not system_bot.claim_update(update.update_id):
+                await query.answer()
+                return
+            await query.answer("Đang xoá…")
+            try:
+                # stop first: a running worker holds its own copy of the queue and would keep rendering
+                stopped = await asyncio.to_thread(server_control.stop_workers)
+            except Exception:
+                LOGGER.exception("Không dừng được worker khi xoá hàng đợi.")
+                stopped = []
+            cleared = await asyncio.to_thread(clear_approved_queue)
+            LOGGER.info("🗑 Telegram: xoá %d kịch bản, dừng %d worker.", cleared, len(stopped))
+            note = f"🗑 Đã xoá {cleared} kịch bản khỏi hàng đợi"
+            note += f" và dừng {len(stopped)} worker." if stopped else "."
+            await _edit_queue_status(query, note)
+            return
+        await query.answer()
+        await _edit_queue_status(query)
+        return
+
     if action == "queue_run":
         from filelock import FileLock, Timeout
 
@@ -1019,46 +1086,54 @@ async def handle_approval_callback(
     await query.answer("Lệnh không hợp lệ.", show_alert=True)
 
 
-async def _send_queue_status(message: Any) -> None:
+def _queue_status_view(note: str = "") -> tuple[str, InlineKeyboardMarkup | None]:
+    """Text + buttons of the approved queue (HTML). `note` is shown on top (e.g. 'Đã xoá …')."""
     queue = read_json(APPROVED_QUEUE_FILE, [])
     _queue_run_cache.clear()
+    head = f"{note}\n\n" if note else ""
     if not isinstance(queue, list) or not queue:
-        await message.reply_text(
-            "📋 *Hàng đợi duyệt hiện đang trống.*\nChưa có video nào chờ sản xuất.",
-            parse_mode=ParseMode.MARKDOWN,
-        )
-        return
-    lines = [f"📋 *Hàng đợi sản xuất video ({len(queue)} kịch bản):*"]
+        return head + "📋 <b>Hàng đợi duyệt hiện đang trống.</b>\nChưa có video nào chờ sản xuất.", None
+    lines = [f"📋 <b>Hàng đợi sản xuất video ({len(queue)} kịch bản):</b>"]
     buttons: list[list[InlineKeyboardButton]] = []
     for idx, item in enumerate(queue, start=1):
         if not isinstance(item, dict):
             continue
         idea = item.get("idea", {}) if isinstance(item.get("idea"), dict) else {}
-        title = idea.get("title", item.get("id", "Kịch bản"))
+        title = str(idea.get("title", item.get("id", "Kịch bản")))
         pub_tag = "🚀 Tạo & Đăng MXH" if item.get("publish") else "🎬 Tạo & gửi Tele"
-        lines.append(f"{idx}. *{title}* — _{pub_tag}_")
+        lines.append(f"{idx}. <b>{html.escape(title)}</b> — <i>{pub_tag}</i>")
         item_id = str(item.get("id") or "")
         if item_id:
             token = uuid.uuid4().hex[:12]
             _queue_run_cache[token] = item_id
             buttons.append(
                 [
-                    InlineKeyboardButton(
-                        f"▶ Chạy trước: {str(title)[:35]}",
-                        callback_data=f"queue_run:{token}",
-                    )
+                    InlineKeyboardButton(f"▶ Chạy trước: {title[:30]}", callback_data=f"queue_run:{token}"),
+                    InlineKeyboardButton(f"🗑 Xoá #{idx}", callback_data=f"queue_del:{token}"),
                 ]
             )
+    buttons.append(
+        [InlineKeyboardButton(f"🗑 Xoá tất cả ({len(queue)})", callback_data="queue_clear:ask")]
+    )
     lines.append(
-        "\n_Bấm “Chạy trước” để đưa một mục lên đầu hàng đợi. "
-        "Worker sẽ xử lý mục đó trước rồi tiếp tục các mục còn lại._"
+        "\n<i>“Chạy trước” đưa một mục lên đầu hàng đợi. “🗑 Xoá” bỏ kịch bản khỏi hàng đợi "
+        "(nó quay về trạng thái chờ duyệt, không mất).</i>"
     )
-    markup = InlineKeyboardMarkup(buttons) if buttons else None
-    await message.reply_text(
-        "\n".join(lines),
-        parse_mode=ParseMode.MARKDOWN,
-        reply_markup=markup,
-    )
+    return head + "\n".join(lines), InlineKeyboardMarkup(buttons)
+
+
+async def _send_queue_status(message: Any) -> None:
+    text, markup = _queue_status_view()
+    await message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=markup)
+
+
+async def _edit_queue_status(query: Any, note: str = "") -> None:
+    text, markup = _queue_status_view(note)
+    try:
+        await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=markup)
+    except BadRequest as exc:  # "message is not modified"
+        if "not modified" not in str(exc).lower():
+            raise
 
 
 async def _run_background_ideas_generation(
@@ -1175,6 +1250,7 @@ MENU_BUTTONS: tuple[tuple[tuple[str, str], ...], ...] = (
     (("🎬 Dán kịch bản", "paste_script"), ("⚡ Prompt Flow", "direct_prompt")),
     (("📋 Hàng đợi", "view_queue"), ("⚙️ Cấu hình", "flow_settings")),
     (("👤 Tài khoản Flow", "flow_accounts"), ("🖥 Server", "server_control")),
+    (("📥 Import video", "import_video"), ("🧽 Xóa logo ✦", "remove_watermark")),
     (("🎵 Bóc thoại TikTok", "tiktok_transcribe"), ("📜 Log", "view_logs"), ("❌ Hủy", "cancel")),
 )
 MENU_BUTTON_ACTIONS: dict[str, str] = {
@@ -1192,7 +1268,7 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
 
 
 # Bump when MENU_BUTTONS changes so the new bottom keyboard is pushed once automatically.
-MENU_KEYBOARD_VERSION = "6"
+MENU_KEYBOARD_VERSION = "8"
 MENU_VERSION_FILE = STORAGE_DIR / "telegram_menu_version.txt"
 
 
@@ -1234,6 +1310,8 @@ async def _run_menu_action(message: Any, action: str) -> None:
     chat_id = str(message.chat_id)
     _reset_session(chat_id)  # a menu tap always starts fresh (no stale "waiting_*" state)
     transcribe_bot.cancel(chat_id)
+    watermark_bot.cancel(chat_id)
+    import_bot.cancel(chat_id)
     session = _get_session(chat_id)
 
     if action == "prompt_theme":
@@ -1281,6 +1359,12 @@ async def _run_menu_action(message: Any, action: str) -> None:
         return
     if action == "tiktok_transcribe":
         await transcribe_bot.start_link_mode(message)
+        return
+    if action == "import_video":
+        await import_bot.start_mode(message)
+        return
+    if action == "remove_watermark":
+        await watermark_bot.start_mode(message)
         return
     if action == "view_logs":
         await log_bot.send_menu(message)
@@ -1550,6 +1634,8 @@ async def handle_cancel_command(
         return
     _reset_session(message.chat_id)
     transcribe_bot.cancel(message.chat_id)
+    watermark_bot.cancel(message.chat_id)
+    import_bot.cancel(message.chat_id)
     await message.reply_text(
         "👌 Đã hủy thao tác đang chờ. Gõ /menu để mở lại bảng chọn.",
         parse_mode=ParseMode.MARKDOWN,
@@ -1616,6 +1702,10 @@ async def handle_text_message(
     session = _get_session(chat_id)
 
     if text not in MENU_BUTTON_ACTIONS and await transcribe_bot.handle_text(message, text):
+        return
+    if text not in MENU_BUTTON_ACTIONS and await watermark_bot.handle_text(message, text):
+        return
+    if text not in MENU_BUTTON_ACTIONS and await import_bot.handle_text(message, text):
         return
 
     if session.get("state") == "waiting_direct":
@@ -1775,6 +1865,56 @@ async def handle_transcribe_command(
     await transcribe_bot.handle_command(message, list(context.args or []))
 
 
+async def handle_watermark_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    if message is None or not _is_authorized_chat(message.chat_id):
+        return
+    _reset_session(message.chat_id)
+    transcribe_bot.cancel(message.chat_id)
+    import_bot.cancel(message.chat_id)
+    await watermark_bot.handle_command(message, list(context.args or []))
+
+
+async def handle_import_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    if message is None or not _is_authorized_chat(message.chat_id):
+        return
+    _reset_session(message.chat_id)
+    transcribe_bot.cancel(message.chat_id)
+    watermark_bot.cancel(message.chat_id)
+    await import_bot.handle_command(message, list(context.args or []))
+
+
+async def handle_video_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Video in xóa-logo mode (or captioned /xoalogo) → remove logo; any other video → import."""
+    message = update.message
+    if message is None or not _is_authorized_chat(message.chat_id):
+        return
+    if await watermark_bot.handle_video(message):
+        return
+    await import_bot.handle_video(message)
+
+
+async def handle_import_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if query is None or query.message is None:
+        return
+    if not _is_authorized_chat(query.message.chat_id):
+        await query.answer("Bạn không có quyền sử dụng nút này.", show_alert=True)
+        return
+    await import_bot.handle_callback(query)
+
+
+async def handle_watermark_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if query is None or query.message is None:
+        return
+    if not _is_authorized_chat(query.message.chat_id):
+        await query.answer("Bạn không có quyền sử dụng nút này.", show_alert=True)
+        return
+    await watermark_bot.handle_callback(query)
+
+
 async def handle_log_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.message
     if message is None or not _is_authorized_chat(message.chat_id):
@@ -1836,6 +1976,17 @@ def register_approval_handler(application: Any) -> None:
     )
     application.add_handler(CommandHandler(transcribe_bot.COMMANDS, handle_transcribe_command))
     application.add_handler(CommandHandler(log_bot.COMMANDS, handle_log_command))
+    application.add_handler(CommandHandler(watermark_bot.COMMANDS, handle_watermark_command))
+    application.add_handler(CommandHandler(import_bot.COMMANDS, handle_import_command))
+    application.add_handler(
+        CallbackQueryHandler(handle_import_callback, pattern=rf"^{import_bot.CALLBACK_PREFIX}")
+    )
+    application.add_handler(
+        CallbackQueryHandler(handle_watermark_callback, pattern=rf"^{watermark_bot.CALLBACK_PREFIX}")
+    )
+    application.add_handler(
+        MessageHandler(filters.VIDEO | filters.Document.VIDEO, handle_video_message)
+    )
     application.add_handler(
         CallbackQueryHandler(handle_transcribe_callback, pattern=rf"^{transcribe_bot.CALLBACK_PREFIX}")
     )

@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import html
+import json
 import logging
 import re
 from pathlib import Path
 from typing import Any
 
 import requests
-from telegram import Bot
+from telegram import Bot, InlineKeyboardMarkup
 from telegram.error import NetworkError, TimedOut
 
 from core.config import get_setting
@@ -126,6 +127,7 @@ async def _send_single_video_file(
     bot: Bot,
     chat_id: str,
     token: str,
+    reply_markup: InlineKeyboardMarkup | None = None,
 ) -> None:
     if not path.is_file():
         LOGGER.warning("Tệp video không tồn tại để gửi: %s", path)
@@ -145,6 +147,7 @@ async def _send_single_video_file(
                     document=f,
                     caption=caption,
                     parse_mode="HTML",
+                    reply_markup=reply_markup,
                     write_timeout=TELEGRAM_WRITE_TIMEOUT,
                     read_timeout=TELEGRAM_READ_TIMEOUT,
                     connect_timeout=TELEGRAM_CONNECT_TIMEOUT,
@@ -156,6 +159,8 @@ async def _send_single_video_file(
                     video=f,
                     caption=caption,
                     parse_mode="HTML",
+                    supports_streaming=True,
+                    reply_markup=reply_markup,
                     write_timeout=TELEGRAM_WRITE_TIMEOUT,
                     read_timeout=TELEGRAM_READ_TIMEOUT,
                     connect_timeout=TELEGRAM_CONNECT_TIMEOUT,
@@ -173,7 +178,13 @@ async def _send_single_video_file(
         with path.open("rb") as f:
             response = requests.post(
                 f"https://api.telegram.org/bot{token}/{method}",
-                data={"chat_id": chat_id, "caption": caption, "parse_mode": "HTML"},
+                data={
+                    "chat_id": chat_id,
+                    "caption": caption,
+                    "parse_mode": "HTML",
+                    **({"supports_streaming": "true"} if method == "sendVideo" else {}),
+                    **({"reply_markup": json.dumps(reply_markup.to_dict())} if reply_markup else {}),
+                },
                 files={field: f},
                 timeout=300,
             )
@@ -183,6 +194,17 @@ async def _send_single_video_file(
             raise RuntimeError(f"Telegram video upload failed: {payload}")
 
     await asyncio.to_thread(_sync_upload)
+
+
+def _flow_buttons(path: Path, with_publish: bool = False) -> InlineKeyboardMarkup | None:
+    """🧽 Xóa logo (and ✨ Caption & đăng) under a Flow video; never blocks sending the video."""
+    try:
+        from core.tele.import_bot import flow_video_markup  # lazy: import_bot imports this module
+
+        return flow_video_markup(path, with_publish=with_publish)
+    except Exception:  # noqa: BLE001
+        LOGGER.warning("Không tạo được nút xóa logo cho %s", path.name, exc_info=True)
+        return None
 
 
 async def send_final_report(
@@ -221,7 +243,7 @@ async def send_final_report(
             clip_caption += "\n📁 <i>Clip gốc từng cảnh (dùng để sửa bằng CapCut)</i>"
             try:
                 await _send_single_video_file(
-                    clip, clip_caption, bot, chat_id, token
+                    clip, clip_caption, bot, chat_id, token, _flow_buttons(clip)
                 )
                 await asyncio.sleep(0.5)
             except Exception as clip_exc:
@@ -320,7 +342,7 @@ async def send_video_to_telegram(
 
             try:
                 await _send_single_video_file(
-                    clip, clip_caption, bot, chat_id, token
+                    clip, clip_caption, bot, chat_id, token, _flow_buttons(clip)
                 )
                 await asyncio.sleep(0.5)
             except Exception as clip_exc:
@@ -340,5 +362,20 @@ async def send_video_to_telegram(
     else:
         full_caption = f"✅ Kịch bản đã duyệt: {html.escape(title[:800])}"
 
-    await _send_single_video_file(path, full_caption, bot, chat_id, token)
+    await _send_single_video_file(
+        path, full_caption, bot, chat_id, token, _flow_buttons(path, with_publish=True)
+    )
     await _send_scene_failure_notice(scene_failures or [], bot)
+
+
+async def send_video_file(
+    path: str | Path,
+    caption: str,
+    bot: Bot,
+    chat_id: str | int,
+    reply_markup: InlineKeyboardMarkup | None = None,
+) -> None:
+    """Send one video (playable inline; as a file above 50 MB) with a retry over plain HTTP."""
+    await _send_single_video_file(
+        Path(path), caption, bot, str(chat_id), get_setting("TELEGRAM_BOT_TOKEN"), reply_markup
+    )

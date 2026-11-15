@@ -248,6 +248,14 @@ async def _cancel_policy_blocked_item(
         )
 
 
+def _still_queued(item_id: str) -> bool:
+    """The list is read once when the worker starts; skip items deleted from Telegram meanwhile."""
+    if any(isinstance(item, dict) and item.get("id") == item_id for item in read_approved_queue()):
+        return True
+    LOGGER.info("Bỏ qua kịch bản %s: đã bị xoá khỏi hàng đợi.", item_id)
+    return False
+
+
 async def process_queue(
     bot: Bot | None = None,
     publish: bool = True,
@@ -265,6 +273,8 @@ async def process_queue(
         failures: list[str] = []
         if bot is not None:
             for item in items:
+                if not _still_queued(item["id"]):
+                    continue
                 try:
                     await _process_one(item, bot, publish=publish)
                 except FlowAuthError as auth_error:
@@ -304,6 +314,8 @@ async def process_queue(
         else:
             async with Bot(get_setting("TELEGRAM_BOT_TOKEN")) as standalone_bot:
                 for item in items:
+                    if not _still_queued(item["id"]):
+                        continue
                     try:
                         await _process_one(item, standalone_bot, publish=publish)
                     except FlowAuthError as auth_error:
