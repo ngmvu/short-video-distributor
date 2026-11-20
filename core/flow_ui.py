@@ -167,7 +167,8 @@ def pick_duration_seconds(
 # Selectors
 # ---------------------------------------------------------------------------
 
-AGENT_CHIP = "flow-agent-mode-toggle-chip button"
+# Old UI: a chip; new UI (Nov 2026): a switch with spark / spark_off icon. Both carry aria-pressed.
+AGENT_CHIP = "flow-agent-mode-toggle-chip button, flow-agent-mode-switch button"
 SETTINGS_TRIGGER = (
     'button.settings-trigger-button, button[aria-label="Settings trigger"], '
     'button[aria-label="Điều kiện kích hoạt cài đặt"]'
@@ -443,6 +444,8 @@ async def fill_prompt_and_submit(page: Any, prompt_text: str, ingredient_tags: l
 
 
 ACCOUNT_MENU_BUTTON = (
+    # new UI: the avatar opens an "account settings" panel holding the credits row
+    'flow-header-user-icon [role="button"]:visible, '
     'button:has-text("PRO"):visible, button:has-text("ULTRA"):visible, '
     '[role="button"]:has-text("PRO"):visible'
 )
@@ -470,7 +473,11 @@ def parse_credits(text: str) -> int | None:
 
 
 # vi: "Đặt lại lúc 01:27 vào 7 thg 12" · en (best effort): "Resets at 1:27 AM on Dec 7"
-_RESET_LINE_RE = re.compile(r"^\s*(?:đặt lại|resets?|renews?)\b.*$", re.IGNORECASE | re.MULTILINE)
+# daily plans (new UI): "Số tín dụng được làm mới hằng ngày vào lúc 17:54" · "Credits refresh daily at 5:54 PM"
+_RESET_LINE_RE = re.compile(
+    r"^.*\b(?:đặt lại|làm mới|resets?|renews?|refresh(?:es|ed)?)\b.*$", re.IGNORECASE | re.MULTILINE
+)
+_DAILY_RE = re.compile(r"hằng ngày|hàng ngày|mỗi ngày|daily|every day", re.IGNORECASE)
 _RESET_VI_RE = re.compile(
     r"(\d{1,2}):(\d{2}).*?(\d{1,2})\s*(?:thg|tháng)\s*(\d{1,2})(?:\D+(\d{4}))?", re.IGNORECASE
 )
@@ -519,9 +526,25 @@ def parse_reset(text: str, now: float | None = None) -> tuple[int | None, str]:
                 hour = 0
             month, day = _MONTHS_EN[en_date.group(1).lower()[:3]], int(en_date.group(2))
             year = int(en_date.group(3)) if en_date.group(3) else None
+    current = datetime.fromtimestamp(time.time() if now is None else now)
+    if hour is None and _DAILY_RE.search(line):
+        daily = _RESET_EN_TIME_RE.search(line)
+        if daily:
+            hour, minute = int(daily.group(1)), int(daily.group(2))
+            meridiem = (daily.group(3) or "").upper()
+            if meridiem == "PM" and hour < 12:
+                hour += 12
+            elif meridiem == "AM" and hour == 12:
+                hour = 0
+            try:
+                when = current.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            except ValueError:
+                return None, line
+            if when <= current:
+                when += timedelta(days=1)  # next daily refresh
+            return int(when.timestamp()), line
     if hour is None:
         return None, line
-    current = datetime.fromtimestamp(time.time() if now is None else now)
     try:
         when = datetime(year or current.year, month, day, hour, minute)
         if year is None and when < current - timedelta(days=1):
@@ -635,6 +658,18 @@ def estimate_scene_seconds(scene: dict[str, Any]) -> int:
         dialogue = match.group(1) if match else ""
     words = len(dialogue.split())
     return max(4, math.ceil(words / 3 + 2))
+
+
+async def is_menu_item_disabled(item: Any) -> bool:
+    """Flow greys out upscaled downloads (1080p / 4K) on plans that don't include them."""
+    try:
+        return bool(
+            await item.get_attribute("disabled") is not None
+            or await item.get_attribute("aria-disabled") == "true"
+            or "mat-mdc-menu-item-disabled" in (await item.get_attribute("class") or "")
+        )
+    except Exception:
+        return False
 
 
 def quality_menu_regex(quality: str) -> re.Pattern[str]:

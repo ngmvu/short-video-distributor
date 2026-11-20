@@ -568,11 +568,18 @@ async def _inspect_tiles(results: Any) -> list[dict[str, Any]]:
             const label = el.getAttribute('aria-label');
             const isExisting = el.getAttribute('data-svd-existing') === '1';
             const hasVideoTile = Boolean(el.querySelector('flow-video-tile'));
-            const hasMoreOptions = Boolean(el.querySelector('button[aria-label="More options"]'));
+            const hasMoreOptions = Boolean(el.querySelector(
+                'button[aria-label="More options"], button[aria-label="Tuỳ chọn khác"], button[aria-label="Tùy chọn khác"]'
+            ));
             const video = el.querySelector('video');
-            const src = video
+            // New UI (Nov 2026): a finished tile shows <img class="thumbnail"> and only swaps in
+            // <video> on hover; both point at the same media URL, so either identifies the clip.
+            const thumb = el.querySelector('flow-video-tile img.thumbnail');
+            const thumbSrc = thumb ? (thumb.currentSrc || thumb.getAttribute('src') || '') : '';
+            const videoSrc = video
                 ? (video.currentSrc || video.getAttribute('src') || (video.querySelector('source') && video.querySelector('source').getAttribute('src')) || '')
                 : '';
+            const src = videoSrc || thumbSrc;
             const hasProgress = Boolean(
                 el.querySelector('[role="progressbar"], mat-progress-spinner, mat-spinner, [aria-busy="true"]')
             );
@@ -591,7 +598,7 @@ async def _inspect_tiles(results: Any) -> list[dict[str, Any]]:
             ].some(marker => lowerText.includes(marker));
             const percentMatch = text.match(/\\b(\\d{1,3})%\\b/);
             const percent = percentMatch ? percentMatch[1] + '%' : null;
-            const hasVideo = Boolean(video && src && src !== 'about:blank');
+            const hasVideo = Boolean((video || thumb) && src && src !== 'about:blank');
             const isReady = Boolean(
                 hasVideo
                 && !hasProgress
@@ -956,6 +963,17 @@ async def _click_preferred_quality(page: Any) -> bool:
     item = page.get_by_role("menuitem", name=_preferred_quality_pattern()).first
     try:
         if await item.count() and await item.is_visible():
+            if await flow_ui.is_menu_item_disabled(item):
+                # e.g. free plans: 1080p / 4K upscales are greyed out -> take the original 720p.
+                original = page.get_by_role("menuitem", name=flow_ui.quality_menu_regex("720")).first
+                if await original.count() and await original.is_visible():
+                    LOGGER.warning(
+                        "Tài khoản Flow này không cho tải %s; tải bản 720p gốc thay thế.",
+                        flow_ui.flow_settings().download_quality,
+                    )
+                    await original.click(timeout=4_000)
+                    return True
+                return False
             await item.click(timeout=4_000)
             return True
     except Exception:

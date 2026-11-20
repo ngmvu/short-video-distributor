@@ -72,6 +72,33 @@ class FlowCreditsTests(unittest.TestCase):
         self.assertEqual(reset_at, int(datetime(2026, 12, 7, 13, 27).timestamp()))
         self.assertEqual(flow_ui.parse_reset("491 tín dụng Google Flow", now), (None, ""))
 
+    def test_parse_daily_refresh_from_new_account_panel(self) -> None:
+        from datetime import datetime
+
+        # Text of the new (Nov 2026) account panel, as read from the live page.
+        panel = (
+            "close\nHương Nguyễn Thị Thu\nChuyển đổi tài khoản\nmovie_filter_auto\n"
+            "50 tín dụng Google Flow\nSố tín dụng được làm mới hằng ngày vào lúc 17:54\nNâng cấp\n"
+            "Hình mờ có thể nhìn thấy"
+        )
+        before = datetime(2026, 11, 20, 10, 0).timestamp()
+        info = flow_ui.parse_account_menu(panel, before)
+        self.assertEqual(info.credits, 50)
+        self.assertEqual(info.reset_at, int(datetime(2026, 11, 20, 17, 54).timestamp()))
+        self.assertEqual(info.reset_text, "Số tín dụng được làm mới hằng ngày vào lúc 17:54")
+        after = datetime(2026, 11, 20, 18, 0).timestamp()  # already refreshed today -> tomorrow
+        self.assertEqual(
+            flow_ui.parse_account_menu(panel, after).reset_at,
+            int(datetime(2026, 11, 21, 17, 54).timestamp()),
+        )
+        reset_at, _ = flow_ui.parse_reset("Credits refresh daily at 5:54 PM", before)
+        self.assertEqual(reset_at, int(datetime(2026, 11, 20, 17, 54).timestamp()))
+
+    def test_new_ui_locators(self) -> None:
+        self.assertIn("flow-agent-mode-switch button", flow_ui.AGENT_CHIP)
+        self.assertIn("flow-agent-mode-toggle-chip button", flow_ui.AGENT_CHIP)
+        self.assertTrue(flow_ui.ACCOUNT_MENU_BUTTON.startswith("flow-header-user-icon"))
+
     def test_format_reset(self) -> None:
         from datetime import datetime
 
