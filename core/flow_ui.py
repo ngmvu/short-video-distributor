@@ -651,6 +651,39 @@ def load_profile_credits() -> dict[str, dict[str, int]]:
         return {}
 
 
+# Account priority: spend free daily-refresh credits first (they are lost if unused by the next
+# refresh), keep the paid (monthly) accounts for when the free ones run dry.
+TIER_DAILY, TIER_UNKNOWN, TIER_PAID, TIER_EXHAUSTED = 0, 1, 2, 3
+TIER_LABELS = {
+    TIER_DAILY: "miễn phí (hồi hằng ngày)",
+    TIER_UNKNOWN: "chưa rõ credit",
+    TIER_PAID: "trả phí",
+    TIER_EXHAUSTED: "hết credit, chờ hồi",
+}
+
+
+def is_daily_plan(info: dict[str, Any] | None) -> bool:
+    """Free accounts show 'làm mới hằng ngày' / 'refresh daily'; paid ones reset monthly."""
+    return bool(info and _DAILY_RE.search(str(info.get("reset_text") or "")))
+
+
+def profile_tier(
+    info: dict[str, Any] | None, now: float | None = None, threshold: int | None = None
+) -> int:
+    """Priority group of a profile from its last flow_credits.json entry (lower runs first)."""
+    import time
+
+    if not info or info.get("credits") is None:
+        return TIER_UNKNOWN
+    now = time.time() if now is None else now
+    threshold = min_credits() if threshold is None else threshold
+    reset_at = info.get("reset_at")
+    refreshed_since = bool(reset_at and int(reset_at) <= now)
+    if threshold > 0 and int(info["credits"]) < threshold and not refreshed_since:
+        return TIER_EXHAUSTED
+    return TIER_DAILY if is_daily_plan(info) else TIER_PAID
+
+
 def estimate_scene_seconds(scene: dict[str, Any]) -> int:
     dialogue = str(scene.get("dialogue") or "").strip()
     if not dialogue:

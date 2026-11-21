@@ -94,6 +94,50 @@ class FlowCreditsTests(unittest.TestCase):
         reset_at, _ = flow_ui.parse_reset("Credits refresh daily at 5:54 PM", before)
         self.assertEqual(reset_at, int(datetime(2026, 11, 20, 17, 54).timestamp()))
 
+    def test_profile_tiers_put_free_daily_accounts_first(self) -> None:
+        now = 1_000_000.0
+        daily = {"credits": 50, "reset_at": now + 3600, "reset_text": "Số tín dụng được làm mới hằng ngày vào lúc 17:54"}
+        paid = {"credits": 845, "reset_at": now + 86400 * 20, "reset_text": "Resets Dec 19 at 10:22 AM"}
+        empty_paid = {"credits": 6, "reset_at": now + 86400 * 10, "reset_text": "Resets Dec 5 at 4:12 PM"}
+        empty_daily_refreshed = {**daily, "credits": 3, "reset_at": now - 60}  # refresh time passed
+        tier = lambda info: flow_ui.profile_tier(info, now=now, threshold=20)  # noqa: E731
+        self.assertEqual(tier(daily), flow_ui.TIER_DAILY)
+        self.assertEqual(tier(None), flow_ui.TIER_UNKNOWN)
+        self.assertEqual(tier(paid), flow_ui.TIER_PAID)
+        self.assertEqual(tier(empty_paid), flow_ui.TIER_EXHAUSTED)
+        self.assertEqual(tier({**daily, "credits": 3}), flow_ui.TIER_EXHAUSTED)
+        self.assertEqual(tier(empty_daily_refreshed), flow_ui.TIER_DAILY)
+        self.assertTrue(flow_ui.is_daily_plan({"reset_text": "Credits refresh daily at 5:54 PM"}))
+
+    def test_list_flow_profiles_orders_by_tier_keeping_configured_order(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        from core import flow_runner as fr
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for name in ("a", "b", "d", "g", "x"):
+                (root / "flow_profiles" / name).mkdir(parents=True)
+                (root / "flow_profiles" / name / "auth.json").write_text("{}", encoding="utf-8")
+            far = 4_000_000_000
+            credits = {
+                "a": {"credits": 845, "reset_at": far, "reset_text": "Resets Dec 19 at 10:22 AM"},
+                "b": {"credits": 6, "reset_at": far, "reset_text": "Resets Dec 5 at 4:12 PM"},
+                "d": {"credits": 50, "reset_at": far, "reset_text": "Làm mới hằng ngày vào lúc 01:27"},
+                "g": {"credits": 40, "reset_at": far, "reset_text": "Số tín dụng được làm mới hằng ngày vào lúc 17:54"},
+            }
+            with patch.object(fr, "STORAGE_DIR", root), \
+                    patch.object(fr, "setting_path", return_value=root / "no-default-auth.json"), \
+                    patch.object(fr.flow_ui, "flow_setting", return_value="a,b,g,d,x"), \
+                    patch.object(fr.flow_ui, "load_profile_credits", return_value=credits), \
+                    patch.object(fr.flow_ui, "min_credits", return_value=20), \
+                    patch.object(fr, "_active_profile_name", None):
+                names = [p.name for p in fr.list_flow_profiles()]
+                order = fr.describe_profile_order(fr.list_flow_profiles())
+        self.assertEqual(names, ["g", "d", "x", "a", "b"])
+        self.assertTrue(order.startswith("g (miễn phí"))
+
     def test_new_ui_locators(self) -> None:
         self.assertIn("flow-agent-mode-switch button", flow_ui.AGENT_CHIP)
         self.assertIn("flow-agent-mode-toggle-chip button", flow_ui.AGENT_CHIP)

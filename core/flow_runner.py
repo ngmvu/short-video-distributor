@@ -224,7 +224,21 @@ def list_flow_profiles() -> list[FlowProfile]:
                 profiles = profiles[idx:] + profiles[:idx]
                 break
 
+    # Free daily-refresh accounts first, then unknown, then paid; accounts out of credits until
+    # their next refresh go last. Within a group the configured order (and the active profile
+    # rotation above) is kept, since sort() is stable.
+    credits = flow_ui.load_profile_credits()
+    profiles.sort(key=lambda prof: flow_ui.profile_tier(credits.get(prof.name)))
     return profiles
+
+
+def describe_profile_order(profiles: list[FlowProfile]) -> str:
+    """'g (miễn phí (hồi hằng ngày)) → a (trả phí)' for logs and Telegram."""
+    credits = flow_ui.load_profile_credits()
+    return " → ".join(
+        f"{prof.name} ({flow_ui.TIER_LABELS[flow_ui.profile_tier(credits.get(prof.name))]})"
+        for prof in profiles
+    )
 
 
 async def _count_policy_block_messages(page: Any) -> int:
@@ -1959,6 +1973,7 @@ async def generate_video_clips(item_id: str, idea: dict[str, Any]) -> list[Path]
         raise FlowAuthError(
             f"Flow storage state not found: {missing_path}. Run scripts/save_flow_auth.py."
         )
+    LOGGER.info("Thứ tự tài khoản Flow: %s", describe_profile_order(profiles))
 
     flow_settings = flow_ui.flow_settings()
     # "scene" = Agent OFF, paste each scene separately with the composer settings applied.
