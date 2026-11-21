@@ -6,6 +6,7 @@ import json
 import logging
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from filelock import FileLock
@@ -134,10 +135,12 @@ async def _process_one(
             LOGGER.info("Sent approved video %s (and %d scene clips) to Telegram.", item_id, len(scene_clips))
         except Exception as tg_exc:
             LOGGER.warning(
-                "Đã tạo và ghép xong video tại '%s' nhưng gửi qua Telegram bị nghẽn mạng (%s). Bạn có thể xem/đăng trực tiếp trên Web UI!",
+                "Đã tạo và ghép xong video tại '%s' nhưng gửi qua Telegram bị nghẽn mạng (%s).",
                 video_path,
                 tg_exc,
             )
+        if isinstance(item.get("schedule"), dict):
+            await _publish_scheduled_item(item, video_path, bot)
         return
 
     acknowledge_processed(item_id)
@@ -199,6 +202,52 @@ async def _process_one(
             **failure_kwargs,
         )
     LOGGER.info("Processed approved video %s at %s.", item_id, video_path)
+
+
+async def _publish_scheduled_item(item: dict[str, Any], video_path: Path, bot: Bot | None) -> None:
+    """Auto-publish slot (/lich): remove the logo, upload to YouTube for the slot, report back."""
+    from html import escape
+
+    from core.publish_schedule import describe_time, publish_scheduled
+
+    title = str(item.get("idea", {}).get("title") or item["id"])
+    slot = describe_time(item["schedule"]["publish_at"])
+    try:
+        status = await asyncio.to_thread(publish_scheduled, item, Path(video_path))
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.exception("Đăng YouTube theo lịch thất bại cho %s.", item["id"])
+        status = {"success": False, "error": str(exc)}
+    await asyncio.to_thread(
+        save_publish_report,
+        {
+            "item_id": item["id"],
+            "title": title,
+            "video": status.get("video") or Path(video_path).name,
+            "video_name": status.get("video") or Path(video_path).name,
+            "published_at": datetime.now(timezone.utc).isoformat(),
+            "source": "schedule",
+            "schedule": item["schedule"],
+            "statuses": {"youtube": status},
+        },
+    )
+    if status.get("success"):
+        when = f"công khai lúc {slot}" if status.get("publish_at") else "đã công khai ngay (quá giờ hẹn)"
+        text = (
+            f"🗓 <b>YouTube</b> — {escape(title)}\n"
+            f"✅ Đã tải lên, {when}.\n{escape(str(status.get('url') or ''))}"
+        )
+    else:
+        reason = status.get("error") or status.get("message") or "không rõ lỗi"
+        text = f"🗓 <b>YouTube</b> — {escape(title)}\n❌ Đăng theo lịch {slot} thất bại: {escape(str(reason)[:400])}"
+    if bot is None:
+        return
+    try:
+        await bot.send_message(
+            chat_id=get_setting("TELEGRAM_CHAT_ID"), text=text, parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True,
+        )
+    except Exception:  # noqa: BLE001
+        LOGGER.warning("Không gửi được kết quả đăng YouTube theo lịch lên Telegram.", exc_info=True)
 
 
 async def _notify_processing_failure(item_id: str, bot: Bot | None) -> None:

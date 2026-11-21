@@ -26,6 +26,15 @@ GenerateAndSend = Callable[..., Awaitable[None]]
 ProcessQueue = Callable[..., Awaitable[None]]
 
 
+async def _publish_schedule_tick(bot: Any) -> None:
+    from core.tele import schedule_bot
+
+    try:
+        await schedule_bot.tick(bot)
+    except Exception:  # noqa: BLE001
+        LOGGER.exception("Lịch đăng tự động: lỗi khi kiểm tra khung giờ.")
+
+
 async def run_telegram_listener(
     generate_on_start: bool,
     process_on_start: bool,
@@ -158,7 +167,7 @@ async def _run_telegram_listener_locked(
             or (schedule_mode == "daily" and bool(schedule_time and schedule_time.strip()))
             or interval_minutes is not None
         )
-        if has_schedule or process_approved:
+        if has_schedule or process_approved or poll_updates:
             scheduler = AsyncIOScheduler()
             if schedule_mode == "datetime" and schedule_datetime and schedule_datetime.strip():
                 try:
@@ -262,6 +271,17 @@ async def _run_telegram_listener_locked(
                         process_queue_fn,
                     ],
                     id="process_approved_queue",
+                    max_instances=1,
+                    coalesce=True,
+                )
+            if poll_updates:
+                # /lich auto-publish slots: generate Gemini ideas when a slot's time comes.
+                scheduler.add_job(
+                    _publish_schedule_tick,
+                    "interval",
+                    seconds=60,
+                    args=[application.bot],
+                    id="publish_schedule_tick",
                     max_instances=1,
                     coalesce=True,
                 )

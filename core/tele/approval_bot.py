@@ -33,7 +33,15 @@ from telegram.helpers import escape_markdown
 
 from core import server_control
 from core.config import ROOT_DIR, STORAGE_DIR, get_setting
-from core.tele import flow_settings_bot, import_bot, log_bot, system_bot, transcribe_bot, watermark_bot
+from core.tele import (
+    flow_settings_bot,
+    import_bot,
+    log_bot,
+    schedule_bot,
+    system_bot,
+    transcribe_bot,
+    watermark_bot,
+)
 from core.gemini.idea_generator import (
     rewrite_idea_twist_or_refine,
     suggest_trending_topics,
@@ -180,6 +188,7 @@ TELEGRAM_BOT_COMMANDS = [
     BotCommand("quality", "Chọn chất lượng tải video 720p / 1080p"),
     BotCommand("flow", "Xem / đổi cấu hình Google Flow"),
     BotCommand("thoai", "Bóc lời thoại từ link video TikTok"),
+    BotCommand("lich", "Lịch tự đăng YouTube: giờ đăng, Gemini viết ý tưởng theo skill"),
     BotCommand("import", "Import video từ Telegram → xóa logo / đăng MXH"),
     BotCommand("xoalogo", "Xóa logo ✦ Gemini/Veo khỏi video, không cắt khung"),
     BotCommand("log", "Xem log: crawl thoại, lỗi, mới nhất"),
@@ -351,7 +360,11 @@ async def send_draft_ideas(
             item
             for item in existing
             if isinstance(item, dict)
-            and item.get("state") in {"approved", "processed"}
+            and (
+                item.get("state") in {"approved", "processed"}
+                # pending /lich ideas must survive: the auto-approve step looks them up later
+                or (item.get("schedule") and item.get("state") == "pending")
+            )
         ][-30:]
         combined.extend(new_drafts)
     else:
@@ -1248,7 +1261,7 @@ async def _send_choice_menu(message: Any) -> None:
 MENU_BUTTONS: tuple[tuple[tuple[str, str], ...], ...] = (
     (("✍️ Ý tưởng mới", "prompt_theme"), ("💡 Gợi ý chủ đề", "suggest_topics")),
     (("🎬 Dán kịch bản", "paste_script"), ("⚡ Prompt Flow", "direct_prompt")),
-    (("📋 Hàng đợi", "view_queue"), ("⚙️ Cấu hình", "flow_settings")),
+    (("📋 Hàng đợi", "view_queue"), ("🗓 Lịch đăng", "publish_schedule"), ("⚙️ Cấu hình", "flow_settings")),
     (("👤 Tài khoản Flow", "flow_accounts"), ("🖥 Server", "server_control")),
     (("📥 Import video", "import_video"), ("🧽 Xóa logo ✦", "remove_watermark")),
     (("🎵 Bóc thoại TikTok", "tiktok_transcribe"), ("📜 Log", "view_logs"), ("❌ Hủy", "cancel")),
@@ -1268,7 +1281,7 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
 
 
 # Bump when MENU_BUTTONS changes so the new bottom keyboard is pushed once automatically.
-MENU_KEYBOARD_VERSION = "8"
+MENU_KEYBOARD_VERSION = "9"
 MENU_VERSION_FILE = STORAGE_DIR / "telegram_menu_version.txt"
 
 
@@ -1312,6 +1325,7 @@ async def _run_menu_action(message: Any, action: str) -> None:
     transcribe_bot.cancel(chat_id)
     watermark_bot.cancel(chat_id)
     import_bot.cancel(chat_id)
+    schedule_bot.cancel(chat_id)
     session = _get_session(chat_id)
 
     if action == "prompt_theme":
@@ -1359,6 +1373,9 @@ async def _run_menu_action(message: Any, action: str) -> None:
         return
     if action == "tiktok_transcribe":
         await transcribe_bot.start_link_mode(message)
+        return
+    if action == "publish_schedule":
+        await schedule_bot.send_menu(message)
         return
     if action == "import_video":
         await import_bot.start_mode(message)
@@ -1636,6 +1653,7 @@ async def handle_cancel_command(
     transcribe_bot.cancel(message.chat_id)
     watermark_bot.cancel(message.chat_id)
     import_bot.cancel(message.chat_id)
+    schedule_bot.cancel(message.chat_id)
     await message.reply_text(
         "👌 Đã hủy thao tác đang chờ. Gõ /menu để mở lại bảng chọn.",
         parse_mode=ParseMode.MARKDOWN,
@@ -1706,6 +1724,8 @@ async def handle_text_message(
     if text not in MENU_BUTTON_ACTIONS and await watermark_bot.handle_text(message, text):
         return
     if text not in MENU_BUTTON_ACTIONS and await import_bot.handle_text(message, text):
+        return
+    if text not in MENU_BUTTON_ACTIONS and await schedule_bot.handle_text(message, text):
         return
 
     if session.get("state") == "waiting_direct":
@@ -1875,6 +1895,24 @@ async def handle_watermark_command(update: Update, context: ContextTypes.DEFAULT
     await watermark_bot.handle_command(message, list(context.args or []))
 
 
+async def handle_schedule_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    if message is None or not _is_authorized_chat(message.chat_id):
+        return
+    _reset_session(message.chat_id)
+    await schedule_bot.send_menu(message)
+
+
+async def handle_schedule_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if query is None or query.message is None:
+        return
+    if not _is_authorized_chat(query.message.chat_id):
+        await query.answer("Bạn không có quyền sử dụng nút này.", show_alert=True)
+        return
+    await schedule_bot.handle_callback(query)
+
+
 async def handle_import_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.message
     if message is None or not _is_authorized_chat(message.chat_id):
@@ -1978,6 +2016,10 @@ def register_approval_handler(application: Any) -> None:
     application.add_handler(CommandHandler(log_bot.COMMANDS, handle_log_command))
     application.add_handler(CommandHandler(watermark_bot.COMMANDS, handle_watermark_command))
     application.add_handler(CommandHandler(import_bot.COMMANDS, handle_import_command))
+    application.add_handler(CommandHandler(schedule_bot.COMMANDS, handle_schedule_command))
+    application.add_handler(
+        CallbackQueryHandler(handle_schedule_callback, pattern=rf"^{schedule_bot.CALLBACK_PREFIX}")
+    )
     application.add_handler(
         CallbackQueryHandler(handle_import_callback, pattern=rf"^{import_bot.CALLBACK_PREFIX}")
     )

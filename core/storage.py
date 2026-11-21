@@ -106,15 +106,25 @@ def skip_draft(draft_id: str) -> bool:
         return True
 
 
-def append_pending_draft(draft_id: str, idea: dict[str, Any], source: str = "telegram") -> None:
-    """Append one draft without overwriting the existing drafts list."""
+def append_pending_draft(
+    draft_id: str,
+    idea: dict[str, Any],
+    source: str = "telegram",
+    schedule: dict[str, Any] | None = None,
+) -> None:
+    """Append one draft without overwriting the existing drafts list.
+
+    `schedule` (auto-publish slot, see core.publish_schedule) travels with the draft into the queue."""
     ensure_storage()
     with FileLock(str(QUEUE_LOCK_FILE)):
         drafts = read_json(DRAFTS_FILE, [])
         if not isinstance(drafts, list):
             drafts = []
         drafts = [item for item in drafts if item.get("id") != draft_id]
-        drafts.append({"id": draft_id, "idea": idea, "state": "pending", "source": source})
+        draft: dict[str, Any] = {"id": draft_id, "idea": idea, "state": "pending", "source": source}
+        if schedule:
+            draft["schedule"] = schedule
+        drafts.append(draft)
         write_json_atomic(DRAFTS_FILE, drafts)
 
 
@@ -133,15 +143,16 @@ def enqueue_draft_with_options(draft_id: str, publish: bool, notify_progress: bo
 
         queue = read_json(APPROVED_QUEUE_FILE, [])
         queue = [item for item in queue if item.get("id") != draft_id]
-        queue.append(
-            {
-                "id": draft_id,
-                "approved_at": datetime.now(timezone.utc).isoformat(),
-                "idea": draft["idea"],
-                "publish": bool(publish),
-                "notify_progress": bool(notify_progress),
-            }
-        )
+        entry = {
+            "id": draft_id,
+            "approved_at": datetime.now(timezone.utc).isoformat(),
+            "idea": draft["idea"],
+            "publish": bool(publish),
+            "notify_progress": bool(notify_progress),
+        }
+        if isinstance(draft.get("schedule"), dict):
+            entry["schedule"] = draft["schedule"]
+        queue.append(entry)
         draft["state"] = "approved"
         write_json_atomic(DRAFTS_FILE, drafts)
         write_json_atomic(APPROVED_QUEUE_FILE, queue)

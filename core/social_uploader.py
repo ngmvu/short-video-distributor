@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from datetime import timezone
 from pathlib import Path
 from typing import Any
 
@@ -149,7 +150,10 @@ def _youtube_upload(
     description: str,
     tags: list[str],
     made_for_kids: bool | None = None,
+    publish_at: Any = None,
 ) -> dict[str, Any]:
+    """Upload a Short. With `publish_at` (aware datetime, future) the video stays private and
+    YouTube makes it public at that moment; otherwise it is public immediately."""
     token_file = setting_path("YOUTUBE_TOKEN_FILE", "yt_token.json")
     if not token_file.is_file():
         raise FileNotFoundError(f"YouTube token file not found: {token_file}")
@@ -177,8 +181,13 @@ def _youtube_upload(
                 "categoryId": "23",
             },
             "status": {
-                "privacyStatus": "public",
+                "privacyStatus": "private" if publish_at else "public",
                 "selfDeclaredMadeForKids": self_declared_kids,
+                **(
+                    {"publishAt": publish_at.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+                    if publish_at
+                    else {}
+                ),
             },
         },
         media_body=MediaFileUpload(
@@ -195,6 +204,7 @@ def _youtube_upload(
         "success": True,
         "id": video_id,
         "url": f"https://www.youtube.com/shorts/{video_id}",
+        **({"scheduled_for": publish_at.isoformat()} if publish_at else {}),
     }
 
 
@@ -394,7 +404,8 @@ def publish_to_social(
         yt_tags = parse_hashtags(yt_cfg.get("hashtags", default_tags))
         yt_made_for_kids = _resolve_youtube_made_for_kids(yt_cfg.get("made_for_kids"))
         results["youtube"] = _attempt_upload(
-            _youtube_upload, path, yt_title, yt_caption, yt_tags, yt_made_for_kids
+            _youtube_upload, path, yt_title, yt_caption, yt_tags, yt_made_for_kids,
+            yt_cfg.get("publish_at"),
         )
     else:
         results["youtube"] = {

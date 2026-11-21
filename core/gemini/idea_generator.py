@@ -1223,3 +1223,142 @@ Trả về duy nhất JSON theo cấu trúc:
     except Exception as exc:
         LOGGER.warning("Could not rewrite idea twist via Gemini: %s", exc)
     return idea
+
+
+# ---------------------------------------------------------------------------
+# Skill-driven ideas (scheduled auto-publish): SKILL.md is the primary rulebook
+# ---------------------------------------------------------------------------
+
+SKILL_MIN_SCENES, SKILL_MAX_SCENES = 3, 6
+SKILL_SCENE_SECONDS = 10
+
+
+def _validate_skill_ideas(ideas: Any, ideas_count: int) -> list[dict[str, Any]]:
+    """3–6 scenes chosen by the skill, each with a Veo prompt + Vietnamese dialogue."""
+    if isinstance(ideas, dict):
+        ideas = [ideas]
+    if not isinstance(ideas, list) or not ideas:
+        raise ValueError("Gemini must return a JSON list of ideas.")
+    ideas = ideas[:ideas_count]
+    for index, idea in enumerate(ideas, start=1):
+        if not isinstance(idea, dict) or not str(idea.get("title") or "").strip():
+            raise ValueError(f"Idea {index} is missing a title.")
+        scenes = idea.get("scenes")
+        if not isinstance(scenes, list) or not SKILL_MIN_SCENES <= len(scenes) <= SKILL_MAX_SCENES:
+            raise ValueError(
+                f"Idea {index} must contain {SKILL_MIN_SCENES}–{SKILL_MAX_SCENES} scenes."
+            )
+        for scene_index, scene in enumerate(scenes, start=1):
+            if not isinstance(scene, dict) or not all(
+                isinstance(scene.get(field), str) and scene.get(field).strip()
+                for field in ("prompt", "dialogue")
+            ):
+                raise ValueError(f"Idea {index}, scene {scene_index} needs prompt and dialogue.")
+    return ideas
+
+
+def generate_skill_ideas(topic: str = "", ideas_count: int = 1) -> list[dict[str, Any]]:
+    """Ideas written by Gemini with SKILL.md (video-hai-two-shot-creator) as the rulebook.
+
+    The skill decides the scene count (3–6 × 10s). Output uses the same idea shape as
+    generate_ideas(), so drafts, Telegram approval and the Flow runner work unchanged.
+    """
+    ideas_count = max(1, min(int(ideas_count), 5))
+    skill = _load_skill_instructions()
+    if not skill:
+        raise ValueError("Không tìm thấy video-hai-two-shot-creator/SKILL.md.")
+    char1_tag = _opt_setting("CHARACTER_1_TAG", "@khi")
+    char1_voice = _opt_setting("CHARACTER_1_VOICE", "@Voice_Khi")
+    char2_tag = _opt_setting("CHARACTER_2_TAG", "@nguoi")
+    char2_voice = _opt_setting("CHARACTER_2_VOICE", "@Voice_Nguoi")
+    recent = _load_recent_draft_titles(limit=12)
+    topic = (topic or "").strip()
+    brief = (
+        f"TOPIC / INPUT: {topic}"
+        if topic
+        else "TOPIC / INPUT: (người dùng không nhập) — tự chọn chủ đề nóng theo mục 8 của SKILL."
+    )
+    if recent:
+        brief += "\nKhông lặp lại các chủ đề gần đây: " + "; ".join(recent)
+
+    prompt = f"""Bạn làm việc ĐÚNG theo SKILL dưới đây (đây là luật cao nhất, mọi phần khác chỉ là định dạng).
+
+===== SKILL =====
+{skill}
+===== HẾT SKILL =====
+
+{brief}
+
+Viết {ideas_count} kịch bản KHÁC NHAU (khác chủ đề/cú chốt). Mỗi kịch bản tự chọn số cảnh 3–6 theo mục 0 của SKILL,
+mỗi cảnh 10 giây. Mỗi cảnh được dán vào Google Flow RIÊNG LẺ nên prompt mỗi cảnh phải tự chứa đủ mô tả 2 nhân vật
+(LOCK mục 2), bối cảnh SET_LOCK, đạo cụ + hành động, lời thoại lip-sync tiếng Việt, góc máy, "duration 10 seconds"
+và khối luật kỹ thuật mục 6. Trong prompt tiếng Anh, gọi nhân vật đúng tag {char1_tag} (khỉ, bên trái) và
+{char2_tag} (ông chú, bên phải).
+
+Chỉ trả về JSON (không markdown) dạng list:
+[
+  {{
+    "title": "<tên video ngắn, cụ thể>",
+    "scene_count_reason": "<SỐ CẢNH TỰ CHỌN: n cảnh — lý do 1 câu>",
+    "setting": "<bối cảnh SET_LOCK>",
+    "hook_summary": "<hook>",
+    "twist_summary": "<cú chốt lật>",
+    "viral_quote": "<câu chốt vô lý-mà-đúng của {char1_tag}>",
+    "caption": "<phần C: caption châm biếm + emoji 🔧😂>",
+    "hashtags": "<phần D: #haihuoc #reelsfb #khibietnoi #tamhonthoxe #khikhonnan #tucdienmau + 1–2 hashtag chủ đề>",
+    "engagement_prompt": "<phần E: câu mồi comment>",
+    "viral_score": <số 0–10: tự chấm theo bước tự kiểm mục 9 — câu chốt có "cái lý", hook mạnh, dễ gây tranh luận, bối cảnh sáng, mỗi scene có hành động>,
+    "scenes": [
+      {{
+        "scene_title": "<HOOK / LEO THANG / BẪY / CHỐT ...>",
+        "duration": "10s",
+        "first_frame": "<tag người nói trước> + <tag còn lại> + <voice của người nói chính: {char1_voice} hoặc {char2_voice}>",
+        "dialogue": "<phần A: thoại tiếng Việt của cảnh, dạng {char2_tag}: \\"...\\" | {char1_tag}: \\"...\\">",
+        "voice": "<voice của người nói chính>",
+        "type": "<dialogue | punchline cho cảnh cuối>",
+        "prompt": "<phần B: prompt Veo tiếng Anh đầy đủ cho cảnh này>"
+      }}
+    ],
+    "youtube_title": "<tiêu đề YouTube Shorts ≤ 90 ký tự, có #Shorts>"
+  }}
+]"""
+    ideas = _call_gemini_parsed(
+        prompt, temperature=0.9, validate=lambda data: _validate_skill_ideas(data, ideas_count)
+    )
+    for idea in ideas:
+        idea["character_1"] = {"ingredient": char1_tag}
+        idea["character_2"] = {"ingredient": char2_tag}
+        for scene in idea["scenes"]:
+            scene["prompt"] = _clean_scene_prompt(scene["prompt"])
+            scene.setdefault("duration", f"{SKILL_SCENE_SECONDS}s")
+            scene.setdefault("first_frame", f"{char2_tag} + {char1_tag}")
+            scene.setdefault("voice", char2_voice)
+            scene.setdefault("type", "dialogue")
+        idea["scenes"][-1]["type"] = "punchline"
+        idea["duration_seconds"] = SKILL_SCENE_SECONDS * len(idea["scenes"])
+        idea["total_duration_label"] = f"~{idea['duration_seconds']} giây ({len(idea['scenes'])} cảnh × 10s)"
+        idea["skill"] = "video-hai-two-shot-creator v16.1"
+        try:
+            idea["viral_score"] = max(0.0, min(10.0, float(idea.get("viral_score"))))
+        except (TypeError, ValueError):
+            idea["viral_score"] = 0.0
+        if topic:
+            idea["user_prompt"] = topic
+        caption = str(idea.get("caption") or "").strip()
+        bait = str(idea.get("engagement_prompt") or "").strip()
+        hashtags = str(idea.get("hashtags") or "").strip()
+        youtube_title = str(idea.get("youtube_title") or idea["title"]).strip()
+        posts = {
+            platform: {"title": idea["title"], "caption": caption, "hashtags": hashtags}
+            for platform in ("tiktok", "facebook")
+        }
+        posts["youtube"] = {
+            "title": youtube_title,
+            "caption": "\n\n".join(part for part in (caption, bait) if part),
+            "hashtags": hashtags if "#shorts" in hashtags.lower() else f"{hashtags} #Shorts".strip(),
+        }
+        idea["social_posts"] = _normalize_social_posts(
+            posts, fallback_title=idea["title"], scenes=idea["scenes"],
+            fallback_caption=caption, fallback_hashtags=hashtags,
+        )
+    return ideas

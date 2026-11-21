@@ -383,7 +383,7 @@ class TelegramInteractiveBotTests(unittest.TestCase):
             [command.command for command in TELEGRAM_BOT_COMMANDS],
             [
                 "gemini", "choice", "new", "direct", "hang_doi", "quality", "flow",
-                "thoai", "import", "xoalogo", "log", "account", "server",
+                "thoai", "lich", "import", "xoalogo", "log", "account", "server",
             ],
         )
 
@@ -497,7 +497,7 @@ class TelegramInteractiveBotTests(unittest.TestCase):
         self.assertEqual(
             labels,
             ["✍️ Ý tưởng mới", "💡 Gợi ý chủ đề", "🎬 Dán kịch bản", "⚡ Prompt Flow",
-             "📋 Hàng đợi", "⚙️ Cấu hình", "👤 Tài khoản Flow", "🖥 Server",
+             "📋 Hàng đợi", "🗓 Lịch đăng", "⚙️ Cấu hình", "👤 Tài khoản Flow", "🖥 Server",
              "📥 Import video", "🧽 Xóa logo ✦", "🎵 Bóc thoại TikTok", "📜 Log", "❌ Hủy"],
         )
         self.assertNotIn("Đăng nhập Flow", args[0])
