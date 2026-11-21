@@ -179,35 +179,18 @@ class DashboardTests(unittest.TestCase):
         self.assertTrue(started)
         self.assertIn("--external-telegram-listener", popen.call_args.args[0])
 
-    def test_dashboard_hides_secrets_and_lists_video_and_queue(self) -> None:
+    def test_index_is_a_minimal_status_page_without_secrets(self) -> None:
         (self.downloads / "rendered.mp4").write_bytes(b"mp4")
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
         self.assertNotIn(b"hidden-test-token", response.data)
-        self.assertIn(b"Workflow editor", response.data)
-        self.assertIn(b'data-node-type="process-queue"', response.data)
-        self.assertIn(b'name="prompt"', response.data)
-        self.assertIn(b'name="scene_count"', response.data)
-        self.assertIn(b'name="duration_seconds"', response.data)
-        self.assertNotIn("Log gần đây".encode(), response.data)
-        self.assertIn("Quản lý log".encode(), response.data)
-        self.assertIn("Xóa log đã lưu".encode(), response.data)
-        self.assertIn(b"rendered", response.data)
-        self.assertIn(b"Approved idea", response.data)
-        self.assertIn(b'data-dashboard-nav="settings-google-flow"', response.data)
-        self.assertIn(b'data-dashboard-page="settings-google-flow"', response.data)
+        self.assertIn("Telegram".encode(), response.data)
+        self.assertIn("Video trong storage/downloads: 1".encode(), response.data)
+        self.assertIn(b'name="csrf_token"', response.data)
 
-    def test_dashboard_loads_separate_static_assets(self) -> None:
-        css = self.client.get("/static/dashboard.css")
-        javascript = self.client.get("/static/dashboard.js")
-
-        self.assertEqual(css.status_code, 200)
-        self.assertEqual(javascript.status_code, 200)
-        self.assertIn(b".sidebar", css.data)
-        self.assertIn(b"activateDashboardPage", javascript.data)
-        self.assertNotIn(b"{{ url_for", javascript.data)
-        css.close()
-        javascript.close()
+    def test_web_ui_assets_are_gone(self) -> None:
+        self.assertEqual(self.client.get("/static/dashboard.css").status_code, 404)
+        self.assertEqual(self.client.get("/static/dashboard.js").status_code, 404)
 
     def test_save_config_keeps_blank_secret_and_updates_normal_field(self) -> None:
         response = self.client.post(
@@ -567,26 +550,6 @@ class DashboardTests(unittest.TestCase):
         self.assertNotIn("hidden-test-token", redacted)
         self.assertNotIn("another-secret", redacted)
         self.assertNotIn("query-secret", redacted)
-
-    def test_workflow_page_renders_live_log_and_saved_drafts(self) -> None:
-        (self.storage / "drafts.json").write_text(
-            json.dumps(
-                [
-                    {
-                        "id": "draft-123",
-                        "idea": {"title": "Saved idea without video"},
-                        "state": "pending",
-                        "created_at": "2026-10-31T08:11:42+00:00",
-                    }
-                ]
-            ),
-            encoding="utf-8",
-        )
-        response = self.client.get("/")
-        self.assertEqual(response.status_code, 200)
-        self.assertIn(b'id="workflow-log-output"', response.data)
-        self.assertIn(b"Saved idea without video", response.data)
-        self.assertIn(b"js-draft-produce-telegram", response.data)
 
     def test_saved_draft_can_be_queued_and_produced_for_telegram(self) -> None:
         import core.storage as storage_mod

@@ -25,7 +25,6 @@ from flask import (
     abort,
     flash,
     redirect,
-    render_template,
     request,
     send_file,
     session,
@@ -1123,24 +1122,35 @@ def save_flow_settings():
     return redirect(url_for("dashboard") + "#flow-settings")
 
 
+_STATUS_PAGE = """<!doctype html>
+<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Short Video Distributor</title>
+<style>body{{font:15px/1.5 system-ui,sans-serif;max-width:640px;margin:40px auto;padding:0 16px;color:#222}}</style></head>
+<body><h1>Short Video Distributor</h1>
+<p>Server đang chạy. Giao diện web đã bỏ — mọi thao tác và cấu hình dùng trên <b>Telegram</b>
+(/menu, /lich lịch đăng, /flow cấu hình, /server).</p>
+<ul><li>Bot Telegram: {bot}</li><li>Kịch bản trong hàng đợi: {queue}</li><li>Video trong storage/downloads: {videos}</li></ul>
+<input type="hidden" name="csrf_token" value="{csrf}">
+</body></html>"""
+
+
 @app.get("/")
 def dashboard() -> str:
-    queue = _load_queue()
-    videos = _video_inventory()
-    return render_template(
-        "dashboard.html",
-        csrf_token=_csrf_token(),
-        groups=_field_groups(),
-        characters=_character_defaults(),
-        flow=_flow_status(),
-        queue=queue,
-        drafts=_load_drafts(),
-        reports=_load_reports(),
-        videos=videos,
-        process=_process_status(),
-        workflow=_workflow_status(),
-        logs=_recent_logs(),
-        flow_settings_fields=_flow_settings_fields(),
+    """Minimal status page (the web UI was removed; Telegram is the control panel).
+
+    Keeps the CSRF token so the local JSON endpoints still work for scripts."""
+    from html import escape
+
+    try:
+        with FileLock(str(TELEGRAM_POLL_LOCK_FILE), timeout=0):
+            bot_state = "chưa chạy"
+    except Timeout:
+        bot_state = "đang chạy"
+    return _STATUS_PAGE.format(
+        bot=bot_state,
+        queue=len(_load_queue()),
+        videos=len(_video_inventory()),
+        csrf=escape(_csrf_token()),
     )
 
 
