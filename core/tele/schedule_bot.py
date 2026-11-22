@@ -23,6 +23,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.error import BadRequest
 
+from core import idea_bank
 from core import publish_schedule as ps
 from core.storage import append_pending_draft, enqueue_draft_with_options
 
@@ -69,7 +70,8 @@ def config_text(config: dict[str, Any], now: datetime | None = None) -> str:
         f"⏰ Giờ đăng mỗi ngày: <b>{html.escape(slots)}</b>",
         f"✍️ Gemini viết ý tưởng trước giờ đăng: <b>{config.get('lead_hours')} tiếng</b>",
         f"💡 Số ý tưởng mỗi khung: <b>{config.get('ideas_per_slot')}</b> (bạn chọn 1 để duyệt)",
-        f"🏷 Chủ đề: <b>{html.escape(config.get('topic') or 'tự do (skill tự chọn chủ đề nóng)')}</b>",
+        f"🏷 Chủ đề: <b>{html.escape(config.get('topic') or 'lấy từ 🧠 Kho ý tưởng (/y)')}</b>"
+        + ("" if config.get("topic") else f" — còn <b>{idea_bank.stats()['total']}</b> ý chưa dùng"),
         f"🧽 Xóa logo ✦ trước khi đăng: <b>{'Có' if config.get('remove_logo') else 'Không'}</b>",
         f"🎬 Ghép outro mời đăng ký vào cuối: <b>{'Có' if config.get('append_outro') else 'Không'}</b>",
         f"🤖 Không duyệt sau <b>{_auto_label(config.get('auto_approve_minutes'))}</b> → "
@@ -85,7 +87,7 @@ def config_text(config: dict[str, Any], now: datetime | None = None) -> str:
             f"<b>{ps.describe_time(publish_at.isoformat())}</b>."
         )
     lines.append(
-        "\nQuy trình: tới giờ → Gemini viết theo SKILL v16.1 → bạn bấm 🗓 Duyệt → Flow tạo video → "
+        "\nQuy trình: tới giờ → lấy ý từ 🧠 kho (hết kho → trend → chủ đề theo thứ) → Gemini viết theo SKILL v16.1 → bạn bấm 🗓 Duyệt → Flow tạo video → "
         "xóa logo → ghép outro → tải lên YouTube, hẹn công khai đúng giờ. Duyệt trễ sau giờ đăng thì đăng ngay khi xong."
     )
     return "\n".join(lines)
@@ -115,7 +117,10 @@ def config_markup(config: dict[str, Any]) -> InlineKeyboardMarkup:
                                  callback_data=f"{p}outro"),
             InlineKeyboardButton("🏷 Chủ đề", callback_data=f"{p}topic"),
         ],
-        [InlineKeyboardButton("✨ Viết ý tưởng ngay cho khung tới", callback_data=f"{p}now")],
+        [
+            InlineKeyboardButton("✨ Viết ý tưởng ngay cho khung tới", callback_data=f"{p}now"),
+            InlineKeyboardButton("🧠 Kho ý tưởng", callback_data="kho:list"),
+        ],
         [InlineKeyboardButton("✅ Xong", callback_data=f"{p}close")],
     ]
     return InlineKeyboardMarkup(rows)
@@ -234,7 +239,8 @@ async def handle_callback(query: Any) -> None:
         _waiting[chat_id] = "topic"
         await query.answer()
         await query.message.reply_text(
-            "🏷 Gửi chủ đề cho Gemini (vd: <i>giá vàng, vợ chồng, shipper</i>). Gửi <code>-</code> để về tự do.",
+            "🏷 Gửi chủ đề CỐ ĐỊNH cho mọi khung giờ (vd: <i>giá vàng</i>) — sẽ bỏ qua 🧠 Kho ý tưởng.\n"
+            "Gửi <code>-</code> để quay về lấy ý từ kho (/y).",
             parse_mode=ParseMode.HTML,
         )
         return
@@ -330,11 +336,14 @@ async def generate_for_slot(bot: Any, publish_at: datetime, count: int | None = 
     count = count or int(config.get("ideas_per_slot") or 1)
     when = ps.describe_time(publish_at.isoformat())
     try:
+        topic = ps.batch_topic(publish_at) or await asyncio.to_thread(
+            idea_bank.choose_topic, publish_at, config.get("topic") or ""
+        )
         ideas: list[dict[str, Any]] = []
         last_error: Exception | None = None
         for attempt in range(1, GENERATE_ATTEMPTS + 1):
             try:
-                ideas = await asyncio.to_thread(generate_skill_ideas, config.get("topic") or "", count)
+                ideas = await asyncio.to_thread(generate_skill_ideas, topic["topic"], count)
                 break
             except Exception as exc:  # noqa: BLE001 — Gemini overload (503/504) is usually temporary
                 last_error = exc
@@ -362,10 +371,14 @@ async def generate_for_slot(bot: Any, publish_at: datetime, count: int | None = 
         draft_ids = [uuid.uuid4().hex[:16] for _ in ideas]
         for draft_id, idea in zip(draft_ids, ideas):
             append_pending_draft(draft_id, idea, source="schedule", schedule=schedule)
-        ps.record_batch(publish_at, draft_ids)
+        ps.record_batch(publish_at, draft_ids, topic)
+        if topic.get("entry_id"):
+            idea_bank.mark_used(topic["entry_id"], key)
         for index, (draft_id, idea) in enumerate(zip(draft_ids, ideas), start=1):
-            reason = str(idea.get("scene_count_reason") or "").strip()
-            label = f"🗓 Lịch đăng {when} · ⭐ {ps.viral_score(idea):g}/10" + (f" · {reason}" if reason else "")
+            label = (
+                f"🗓 Lịch đăng {when} · ⭐ {ps.viral_score(idea):g}/10 · "
+                f"{topic.get('label', '')}: {topic['topic'][:120]}"
+            )
             await bot.send_message(
                 chat_id=chat_id,
                 text=_format_idea(idea, index, status_label=label[:300]),

@@ -127,14 +127,19 @@ def mark_generated(publish_at: datetime) -> None:
         write_json_atomic(CONFIG_FILE, config)
 
 
-def record_batch(publish_at: datetime, draft_ids: list[str]) -> None:
-    """Remember which drafts were offered for a slot (the auto-approve clock starts at the first)."""
+def record_batch(publish_at: datetime, draft_ids: list[str], topic: dict[str, Any] | None = None) -> None:
+    """Remember which drafts were offered for a slot (the auto-approve clock starts at the first).
+
+    `topic` (from core.idea_bank.choose_topic) is kept so "🔄 Thêm ý khác" stays on the same topic.
+    """
     with _lock():
         config = load_config()
         batches = dict(config["batches"])
         key = _slot_key(publish_at)
         batch = dict(batches.get(key) or {})
         batch.setdefault("sent_at", datetime.now().isoformat(timespec="seconds"))
+        if topic and not batch.get("topic"):
+            batch["topic"] = {k: topic.get(k) for k in ("topic", "source", "label", "entry_id")}
         batch["publish_at"] = publish_at.astimezone().isoformat(timespec="seconds")
         batch["draft_ids"] = list(dict.fromkeys([*batch.get("draft_ids", []), *draft_ids]))
         batch.setdefault("approved", None)
@@ -142,6 +147,13 @@ def record_batch(publish_at: datetime, draft_ids: list[str]) -> None:
         cutoff = _slot_key(datetime.now() - timedelta(days=14))
         config["batches"] = {k: v for k, v in batches.items() if k >= cutoff}
         write_json_atomic(CONFIG_FILE, config)
+
+
+def batch_topic(publish_at: datetime) -> dict[str, Any] | None:
+    """The topic already used for this slot's ideas, if any."""
+    batch = load_config()["batches"].get(_slot_key(publish_at)) or {}
+    topic = batch.get("topic")
+    return topic if isinstance(topic, dict) and topic.get("topic") else None
 
 
 def mark_batch_approved(publish_at_iso: str, how: str) -> None:

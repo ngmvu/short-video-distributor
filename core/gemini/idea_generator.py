@@ -1229,12 +1229,12 @@ Trả về duy nhất JSON theo cấu trúc:
 # Skill-driven ideas (scheduled auto-publish): SKILL.md is the primary rulebook
 # ---------------------------------------------------------------------------
 
-SKILL_MIN_SCENES, SKILL_MAX_SCENES = 3, 6
+SKILL_MIN_SCENES, SKILL_MAX_SCENES = 3, 3  # SKILL v16.1: always 3 scenes × 10s
 SKILL_SCENE_SECONDS = 10
 
 
 def _validate_skill_ideas(ideas: Any, ideas_count: int) -> list[dict[str, Any]]:
-    """3–6 scenes chosen by the skill, each with a Veo prompt + Vietnamese dialogue."""
+    """Exactly 3 scenes (SKILL v16.1), each with a Veo prompt + Vietnamese dialogue."""
     if isinstance(ideas, dict):
         ideas = [ideas]
     if not isinstance(ideas, list) or not ideas:
@@ -1246,7 +1246,7 @@ def _validate_skill_ideas(ideas: Any, ideas_count: int) -> list[dict[str, Any]]:
         scenes = idea.get("scenes")
         if not isinstance(scenes, list) or not SKILL_MIN_SCENES <= len(scenes) <= SKILL_MAX_SCENES:
             raise ValueError(
-                f"Idea {index} must contain {SKILL_MIN_SCENES}–{SKILL_MAX_SCENES} scenes."
+                f"Idea {index} must contain exactly {SKILL_MAX_SCENES} scenes."
             )
         for scene_index, scene in enumerate(scenes, start=1):
             if not isinstance(scene, dict) or not all(
@@ -1260,7 +1260,7 @@ def _validate_skill_ideas(ideas: Any, ideas_count: int) -> list[dict[str, Any]]:
 def generate_skill_ideas(topic: str = "", ideas_count: int = 1) -> list[dict[str, Any]]:
     """Ideas written by Gemini with SKILL.md (video-hai-two-shot-creator) as the rulebook.
 
-    The skill decides the scene count (3–6 × 10s). Output uses the same idea shape as
+    Always 3 scenes × 10s (SKILL v16.1). Output uses the same idea shape as
     generate_ideas(), so drafts, Telegram approval and the Flow runner work unchanged.
     """
     ideas_count = max(1, min(int(ideas_count), 5))
@@ -1289,8 +1289,8 @@ def generate_skill_ideas(topic: str = "", ideas_count: int = 1) -> list[dict[str
 
 {brief}
 
-Viết {ideas_count} kịch bản KHÁC NHAU (khác chủ đề/cú chốt). Mỗi kịch bản tự chọn số cảnh 3–6 theo mục 0 của SKILL,
-mỗi cảnh 10 giây. Mỗi cảnh được dán vào Google Flow RIÊNG LẺ nên prompt mỗi cảnh phải tự chứa đủ mô tả 2 nhân vật
+Viết {ideas_count} kịch bản KHÁC NHAU (khác chủ đề/cú chốt). Mỗi kịch bản ĐÚNG 3 cảnh (HOOK → PHẢN ĐÒN + BẪY → CHỐT),
+mỗi cảnh 10 giây — không hơn, không kém. Mỗi cảnh được dán vào Google Flow RIÊNG LẺ nên prompt mỗi cảnh phải tự chứa đủ mô tả 2 nhân vật
 (LOCK mục 2), bối cảnh SET_LOCK, đạo cụ + hành động, lời thoại lip-sync tiếng Việt, góc máy, "duration 10 seconds"
 và khối luật kỹ thuật mục 6. Trong prompt tiếng Anh, gọi nhân vật đúng tag {char1_tag} (khỉ, bên trái) và
 {char2_tag} (ông chú, bên phải).
@@ -1299,7 +1299,6 @@ Chỉ trả về JSON (không markdown) dạng list:
 [
   {{
     "title": "<tên video ngắn, cụ thể>",
-    "scene_count_reason": "<SỐ CẢNH TỰ CHỌN: n cảnh — lý do 1 câu>",
     "setting": "<bối cảnh SET_LOCK>",
     "hook_summary": "<hook>",
     "twist_summary": "<cú chốt lật>",
@@ -1362,3 +1361,44 @@ Chỉ trả về JSON (không markdown) dạng list:
             fallback_caption=caption, fallback_hashtags=hashtags,
         )
     return ideas
+
+
+def extract_situation_from_video(title: str, transcript: str) -> str:
+    """Kho ý tưởng: turn a hot video's speech into a short *situation* for our own script.
+
+    Only the comic situation / conflict is kept — never the original lines — so the
+    khỉ & chú script Gemini writes later is ours, not a copy.
+    """
+    transcript = (transcript or "").strip()[:6000]
+    title = (title or "").strip()[:300]
+    if not transcript and not title:
+        raise ValueError("Video không có lời thoại hay tiêu đề để rút ý tưởng.")
+    prompt = f"""Đây là một video ngắn đang hot. Hãy rút ra TÌNH HUỐNG gây cười của nó để kênh hài
+"khỉ @khi và ông chú @nguoi" (xưng Chú–Cháu, khỉ thắng bằng một câu chốt nghe vô lý mà ngẫm lại đúng)
+dựng thành kịch bản 3 cảnh của riêng mình.
+
+Tiêu đề: {title or "(không có)"}
+Lời thoại (bóc tự động, có thể sai chính tả):
+{transcript or "(không có lời thoại)"}
+
+Luật:
+- Chỉ giữ tình huống / mâu thuẫn / mấu chốt gây cười. KHÔNG chép lại câu thoại gốc, không nhắc tên kênh hay người thật.
+- Viết lại như đề bài cho bộ đôi khỉ – chú, 1–2 câu tiếng Việt, tối đa 220 ký tự.
+- Gợi ý thêm một hướng câu chốt cho @khi khác với video gốc.
+- Nếu video không có tình huống hài nào dùng được, để "situation" là chuỗi rỗng.
+
+Chỉ trả JSON: {{"situation": "...", "punchline_angle": "..."}}"""
+
+    def _validate(data: Any) -> dict[str, str]:
+        if not isinstance(data, dict):
+            raise ValueError("Gemini must return a JSON object.")
+        return {
+            "situation": str(data.get("situation") or "").strip(),
+            "punchline_angle": str(data.get("punchline_angle") or "").strip(),
+        }
+
+    parsed = _call_gemini_parsed(prompt, temperature=0.6, validate=_validate)
+    if not parsed["situation"]:
+        return ""
+    angle = parsed["punchline_angle"]
+    return f"{parsed['situation']} (Hướng chốt gợi ý: {angle})" if angle else parsed["situation"]

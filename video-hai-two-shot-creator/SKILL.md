@@ -1,15 +1,12 @@
 ---
 name: video-hai-two-shot-creator
-description: VIDEO-HÀI-KHỈ-NGƯỜI v16.1 - AI Comedy Director, Trend Hunter & Viral Engine cho Facebook Reels/TikTok/Shorts với bộ đôi @khi và @nguoi. Tự quyết định số cảnh tối ưu nhất (3–6 cảnh, 10s/scene) theo độ dài và nhịp cao trào của nội dung người dùng nhập vào để đạt hiệu quả viral cao nhất. Ép công thức viral: bối cảnh ngoài trời ban ngày sáng-sạch (SET_LOCK), mỗi scene có đạo cụ + hành động, câu chốt của @khi "nghe vô lý nhưng ngẫm lại đúng" để kích comment "đúng mà". Chống dính chữ/nhãn/watermark (Strictly NO text overlays), @khi mặc quần áo đầy đủ, xưng hô Chú-Cháu, không nhạc nền (SFX thật), nụ cười há mồm macaque play-face. Xuất kèm thoại từng scene + prompt Veo EN + caption + hashtag + câu mồi comment.
+description: VIDEO-HÀI-KHỈ-NGƯỜI v16.1 - AI Comedy Director, Trend Hunter & Viral Engine cho Facebook Reels/TikTok/Shorts với bộ đôi @khi và @nguoi. Cố định 3 cảnh × 10s (~30s): HOOK → PHẢN ĐÒN → CHỐT LẬT, nhịp nhanh, dễ xem hết 100%. Ép công thức viral: bối cảnh ngoài trời ban ngày sáng-sạch (SET_LOCK), mỗi scene có đạo cụ + hành động, câu chốt của @khi "nghe vô lý nhưng ngẫm lại đúng" để kích comment "đúng mà". Chống dính chữ/nhãn/watermark (Strictly NO text overlays), @khi mặc quần áo đầy đủ, xưng hô Chú-Cháu, không nhạc nền (SFX thật), nụ cười há mồm macaque play-face. Xuất kèm thoại từng scene + prompt Veo EN + caption + hashtag + câu mồi comment.
 ---
-# SKILL: VIDEO-HÀI-KHỈ-NGƯỜI v16.1 — AI COMEDY DIRECTOR, TREND HUNTER & VIRAL ENGINE (AUTO SCENE COUNT)
+# SKILL: VIDEO-HÀI-KHỈ-NGƯỜI v16.1 — AI COMEDY DIRECTOR, TREND HUNTER & VIRAL ENGINE (3 SCENES)
 
-## 0. THAM SỐ ĐẦU VÀO & TỰ ĐỘNG QUYẾT ĐỊNH SỐ CẢNH
+## 0. THAM SỐ ĐẦU VÀO & SỐ CẢNH (CỐ ĐỊNH 3)
 - `TOPIC / INPUT`: nội dung, tình huống, ý tưởng, bài hát hoặc tin tức do người dùng nhập vào (nếu người dùng chưa cho → tự đề xuất 3 chủ đề nóng theo mục 8, chọn 1 để làm mẫu ngay).
-- `SCENE_COUNT` (TỰ ĐỘNG): **KHÔNG bắt buộc hỏi người dùng chọn số cảnh trước khi viết** (trừ khi người dùng chủ động yêu cầu số cảnh cụ thể). Khi người dùng nhập nội dung, tự động phân tích độ dày tình huống, số vế bẻ lái và nhịp giữ chân để chọn **3, 4, 5 hoặc 6 cảnh (10s/scene)** hợp lý và viral nhất:
-  - **3 cảnh (~30s)**: Ý ngắn gọn, một cú bẻ lái thẳng vào vấn đề, cần nhịp nhanh gọn, dễ xem hết 100%.
-  - **4 cảnh (~40s)**: Tình huống có mở đầu – leo thang – bẫy – chốt lật rõ ràng (mức cân bằng viral mặc định cho đa số ý tưởng).
-  - **5–6 cảnh (~50–60s)**: Nội dung nhiều tầng lớp, nhiều vế cà khịa/đấu khẩu hoặc chuỗi phản ứng leo thang căng tay, đủ đắt để giữ chân khán giả đến giây cuối.
+- `SCENE_COUNT` = **3 (CỐ ĐỊNH, ~30s, 10s/scene)**. Không hỏi, không tự tăng/giảm số cảnh — mọi kịch bản luôn đúng 3 cảnh. Nội dung dài/nhiều vế thì CẮT GỌN còn vế đắt nhất, không kéo thêm cảnh.
 - `SET_LOCK`: bối cảnh (mặc định theo mục 5 — ngoài trời ban ngày sáng, sạch).
 
 ## 1. VAI TRÒ & PHONG CÁCH DIỄN XUẤT
@@ -27,20 +24,17 @@ description: VIDEO-HÀI-KHỈ-NGƯỜI v16.1 - AI Comedy Director, Trend Hunter 
 - **@nguoi phải THUA rõ ràng**: kết thúc bằng biểu cảm cứng họng / bó tay / bật cười (`speechless, gives up, bursts out laughing`).
 - **MỒI TRANH LUẬN**: nội dung phải có "điểm gây tranh cãi nhẹ" để khán giả vào bình luận bênh/phản khỉ → tăng tương tác → FB đẩy reach.
 
-## 4. CẤU TRÚC KỊCH BẢN LINH HOẠT THEO SCENE_COUNT (10s/scene)
-Mọi phiên bản đều theo trục: **HOOK → (LEO THANG) → BẪY → CHỐT LẬT + CƯỜI**. Mỗi scene giữa phải kết trên một "beat" nhỏ (một câu đắt hoặc một biểu cảm) để giữ chân người xem.
+## 4. CẤU TRÚC KỊCH BẢN 3 CẢNH (10s/scene, ~30s)
+Trục cố định: **HOOK → PHẢN ĐÒN → CHỐT LẬT + CƯỜI**. Mỗi scene phải kết trên một "beat" nhỏ (một câu đắt hoặc một biểu cảm) để giữ chân người xem.
 
-| Scene | 3 cảnh (~30s) | 4 cảnh (~40s) | 5 cảnh (~50s) | 6 cảnh (~60s) |
-|---|---|---|---|---|
-| 1 | HOOK: @nguoi ra đề/khịa | HOOK | HOOK | HOOK |
-| 2 | @khi phản đòn vòng vo | Leo thang 1 | Đấu khẩu 1 | Đấu khẩu 1 |
-| 3 | CHỐT LẬT + cười | Bẫy (@nguoi tưởng thắng) | Đấu khẩu 2 (căng hơn) | Đấu khẩu 2 |
-| 4 | — | CHỐT LẬT + cười | Bẫy | Đấu khẩu 3 |
-| 5 | — | — | CHỐT LẬT + cười | Bẫy |
-| 6 | — | — | — | CHỐT LẬT + cười |
+| Scene | Vai trò | Nội dung |
+|---|---|---|
+| 1 | HOOK | @nguoi ra đề / khịa / than phiền — vào thẳng xung đột |
+| 2 | PHẢN ĐÒN + BẪY | @khi đáp vòng vo, @nguoi tưởng mình thắng |
+| 3 | CHỐT LẬT + CƯỜI | @khi tung câu chốt vô lý-mà-đúng, @nguoi cứng họng, @khi cười play-face |
 
 - **HOOK (Scene 1, 0–3 giây đầu)**: vào thẳng xung đột, KHÔNG chào hỏi/giới thiệu. Câu đầu phải gây tò mò hoặc khó chịu nhẹ.
-- **Càng nhiều scene → câu thoại mỗi scene càng phải ngắn**, giữ nhịp nhanh.
+- Chỉ có 30 giây → thoại mỗi scene thật ngắn (tối đa ~15–18 chữ mỗi lượt), không có câu thừa.
 
 ## 5. QUY TẮC HÌNH ẢNH (SET_LOCK, ĐẠO CỤ, HÀNH ĐỘNG)
 - **SET_LOCK mặc định (ưu tiên viral)**: ngoài trời/hiên nhà/sân vườn ban ngày, **ánh nắng nhẹ tự nhiên, nền sạch – thoáng, có cây xanh** (`bright natural daylight, clean uncluttered background, outdoor yard`). → Khung hình sáng hút mắt khi lướt reels.
@@ -58,12 +52,11 @@ Mọi phiên bản đều theo trục: **HOOK → (LEO THANG) → BẪY → CH�
 ## 7. ĐỊNH DẠNG ĐẦU RA BẮT BUỘC (xuất đủ 5 phần)
 Với mỗi yêu cầu, trả về theo đúng thứ tự:
 
-**A. KỊCH BẢN THOẠI** (ghi rõ số cảnh đã chọn và lý do ngắn gọn vì sao số cảnh đó tối ưu nhất cho nội dung, sau đó liệt kê từng scene tiếng Việt):
+**A. KỊCH BẢN THOẠI** (đúng 3 scene, tiếng Việt):
 ```
-SỐ CẢNH TỰ CHỌN: <n cảnh (~n*10s)> — Lý do: <1 câu ngắn>
 SCENE 1 [HOOK] — @nguoi: "..."  | @khi: "..."
-SCENE 2 [...] — ...
-SCENE n [CHỐT] — @khi: "<câu chốt vô lý-mà-đúng>" + cười
+SCENE 2 [PHẢN ĐÒN + BẪY] — ...
+SCENE 3 [CHỐT] — @khi: "<câu chốt vô lý-mà-đúng>" + cười
 ```
 
 **B. PROMPT VEO TỪNG SCENE** (tiếng Anh, cho Google Flow/Veo) — mỗi scene 1 block gồm: mô tả 2 nhân vật (lock theo mục 2) + bối cảnh (SET_LOCK) + đạo cụ/hành động + lời thoại (lip-sync tiếng Việt) + camera + `duration 10 seconds` + khối luật kỹ thuật mục 6.
@@ -82,7 +75,7 @@ SCENE n [CHỐT] — @khi: "<câu chốt vô lý-mà-đúng>" + cười
 → Cú chốt mẫu (dạng vô lý-mà-đúng): "Lương không tăng mà giá tăng, nghĩa là chú đang được giảm giá chính mình đấy!" / "Có tiền thì sợ mất, không tiền thì khỏi lo — cháu đang giàu kiểu an toàn nhất!"
 
 ## 9. QUY TRÌNH LÀM VIỆC
-1. Nhận nội dung/chủ đề (`TOPIC / INPUT`), tự động chọn `SCENE_COUNT` (3–6 cảnh) phù hợp và viral nhất, dùng `SET_LOCK` mặc định (trừ khi nội dung yêu cầu khác).
+1. Nhận nội dung/chủ đề (`TOPIC / INPUT`), luôn viết đúng 3 cảnh × 10s, dùng `SET_LOCK` mặc định (trừ khi nội dung yêu cầu khác).
 2. Viết cú CHỐT trước (theo Luật câu chốt mục 3), rồi viết ngược lên HOOK để mọi thoại dẫn tới cú chốt.
 3. Rải đạo cụ/hành động + đổi góc máy theo mục 5.
 4. Xuất đủ 5 phần theo mục 7.

@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import core.storage as storage
+from core import idea_bank
 from core import publish_schedule as ps
 from core.gemini import idea_generator
 from core.tele import approval_bot, schedule_bot
@@ -18,7 +19,7 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-def _idea(title: str, score: float, scenes: int = 4) -> dict:
+def _idea(title: str, score: float, scenes: int = 3) -> dict:
     return {
         "title": title,
         "viral_score": score,
@@ -42,6 +43,9 @@ class StorageIsolation(unittest.TestCase):
         self.patches = [
             patch.object(ps, "CONFIG_FILE", root / "publish_schedule.json"),
             patch.object(ps, "STORAGE_DIR", root),
+            patch.object(idea_bank, "BANK_FILE", root / "idea_bank.json"),
+            patch.object(idea_bank, "STORAGE_DIR", root),
+            patch.object(idea_bank, "refill_from_trends", return_value=0),
             patch.object(storage, "DRAFTS_FILE", self.drafts),
             patch.object(storage, "APPROVED_QUEUE_FILE", self.queue),
             patch.object(storage, "QUEUE_LOCK_FILE", root / "queue.lock"),
@@ -155,6 +159,33 @@ class ScheduleBotTests(StorageIsolation):
         with patch.object(approval_bot, "_auto_start_video_worker_if_needed"):
             self.assertEqual(_run(schedule_bot.auto_approve_overdue(bot, datetime.now() + timedelta(hours=2))), 0)
 
+    def test_slot_takes_topic_from_idea_bank_and_alt_keeps_it(self) -> None:
+        ps.update_config(enabled=True, slots=["19:00"], lead_hours=3, ideas_per_slot=1)
+        idea_bank.add("trend ABC", "trend")
+        mine, _ = idea_bank.add("Lương không tăng mà giá tăng là đang được giảm giá chính mình", "user")
+        bot = self._bot()
+        with patch("core.gemini.idea_generator.generate_skill_ideas",
+                   return_value=[_idea("Ý A", 8)]) as generate:
+            async def scenario() -> None:
+                await schedule_bot.tick(bot, datetime(2026, 11, 21, 16, 0))
+                await asyncio.gather(*schedule_bot._background_tasks)
+                # 🔄 Thêm ý khác for the same slot → same topic, no second bank idea burned
+                await schedule_bot.generate_for_slot(bot, datetime(2026, 11, 21, 19, 0), count=1)
+
+            _run(scenario())
+        topics = [c.args[0] for c in generate.call_args_list]
+        self.assertEqual(topics, [mine["text"], mine["text"]])  # the user's idea beats the trend
+        self.assertEqual([e["text"] for e in idea_bank.unused()], ["trend ABC"])
+        self.assertIn("Kho ý tưởng", bot.send_message.await_args_list[0].kwargs["text"])
+
+    def test_empty_bank_falls_back_to_weekday_theme(self) -> None:
+        topic = idea_bank.choose_topic(datetime(2026, 11, 25, 19, 0))  # a Wednesday
+        self.assertEqual(topic["source"], "weekday")
+        self.assertIn("tục ngữ", topic["topic"])
+        self.assertIsNone(topic["entry_id"])
+        fixed = idea_bank.choose_topic(datetime(2026, 11, 25, 19, 0), "giá vàng")
+        self.assertEqual((fixed["source"], fixed["topic"]), ("config", "giá vàng"))
+
     def test_unapproved_slot_auto_approves_best_idea_after_an_hour(self) -> None:
         ps.update_config(enabled=True, slots=["19:00"], lead_hours=3, auto_approve_minutes=60)
         bot = self._bot()
@@ -192,12 +223,11 @@ class SkillIdeaGeneratorTests(unittest.TestCase):
         reply = json.dumps([{
             "title": "Lương và giá",
             "viral_score": 8.5,
-            "scene_count_reason": "SỐ CẢNH TỰ CHỌN: 4 cảnh",
             "caption": "Khỉ nói đúng 🔧😂",
             "hashtags": "#haihuoc #reelsfb",
             "engagement_prompt": "Khỉ nói sai chỗ nào?",
             "youtube_title": "Lương không tăng",
-            "scenes": [{"prompt": f"p{n}", "dialogue": f"d{n}"} for n in range(4)],
+            "scenes": [{"prompt": f"p{n}", "dialogue": f"d{n}"} for n in range(3)],
         }])
         with patch.object(idea_generator, "_call_gemini_json", return_value=reply) as call, \
                 patch.object(idea_generator, "_load_recent_draft_titles", return_value=[]):
@@ -206,7 +236,8 @@ class SkillIdeaGeneratorTests(unittest.TestCase):
         self.assertIn("VIDEO-HÀI-KHỈ-NGƯỜI v16.1", prompt)  # the SKILL.md content is sent
         self.assertIn("TOPIC / INPUT: giá vàng", prompt)
         idea = ideas[0]
-        self.assertEqual(idea["duration_seconds"], 40)
+        self.assertEqual(idea["duration_seconds"], 30)
+        self.assertIn("ĐÚNG 3 cảnh", prompt)
         self.assertEqual(idea["scenes"][-1]["type"], "punchline")
         self.assertEqual(idea["scenes"][0]["duration"], "10s")
         self.assertEqual(idea["viral_score"], 8.5)
@@ -214,14 +245,14 @@ class SkillIdeaGeneratorTests(unittest.TestCase):
         self.assertIn("Khỉ nói sai chỗ nào?", youtube["caption"])
         self.assertIn("#Shorts", youtube["hashtags"])
 
-    def test_scene_count_outside_3_to_6_is_rejected(self) -> None:
+    def test_scene_count_other_than_3_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
             idea_generator._validate_skill_ideas(
                 [{"title": "x", "scenes": [{"prompt": "p", "dialogue": "d"}] * 2}], 1
             )
         with self.assertRaises(ValueError):
             idea_generator._validate_skill_ideas(
-                [{"title": "x", "scenes": [{"prompt": "p", "dialogue": "d"}] * 7}], 1
+                [{"title": "x", "scenes": [{"prompt": "p", "dialogue": "d"}] * 4}], 1
             )
 
 
