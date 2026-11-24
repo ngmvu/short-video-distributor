@@ -316,6 +316,14 @@ def format_flow_agent_prompt(idea: dict[str, Any]) -> str:
             )
             first_frame = f"{speaker_tag} + {listener_tag} + {speaker_voice}"
         prompt_str = sanitize_flow_prompt(str(scene.get("prompt") or "").strip())
+        speakers = [s for s in (scene.get("speakers") or []) if isinstance(s, str)]
+        if len(set(speakers)) >= 2:  # SKILL v16.1 turn-taking: the DIALOGUE block names each speaker
+            lines.append(
+                f"Scene {idx} — Input / First Frame: {first_frame}: {prompt_str}\n"
+                f"PERFORMANCE: {speakers[0]} speaks first, then {speakers[1]} answers; while one "
+                "speaks the other keeps a closed mouth but keeps reacting; never freeze."
+            )
+            continue
         lines.append(
             f"Scene {idx} — Input / First Frame: {first_frame}: {prompt_str}\n"
             f"PERFORMANCE: {speaker_tag} is the only speaker, faces camera with a clearly "
@@ -1233,8 +1241,31 @@ SKILL_MIN_SCENES, SKILL_MAX_SCENES = 3, 3  # SKILL v16.1: always 3 scenes × 10s
 SKILL_SCENE_SECONDS = 10
 
 
-def _validate_skill_ideas(ideas: Any, ideas_count: int) -> list[dict[str, Any]]:
-    """Exactly 3 scenes (SKILL v16.1), each with a Veo prompt + Vietnamese dialogue."""
+def _validate_scene_lines(lines: Any, tags: tuple[str, str], where: str, last_scene: bool) -> list[dict[str, str]]:
+    """SKILL 2b: 1–2 lines per scene, one per character, @nguoi before @khi, scene 3 ends on @khi."""
+    khi_tag, nguoi_tag = tags
+    if not isinstance(lines, list) or not 1 <= len(lines) <= 2:
+        raise ValueError(f"{where}: 'lines' must hold 1–2 dialogue lines.")
+    cleaned = []
+    for line in lines:
+        speaker = str((line or {}).get("speaker") or "").strip() if isinstance(line, dict) else ""
+        text = str((line or {}).get("text") or "").strip().strip('"“”').strip() if isinstance(line, dict) else ""
+        if speaker.casefold() not in {khi_tag.casefold(), nguoi_tag.casefold()} or not text:
+            raise ValueError(f"{where}: every line needs speaker {khi_tag}/{nguoi_tag} and text.")
+        speaker = khi_tag if speaker.casefold() == khi_tag.casefold() else nguoi_tag
+        cleaned.append({"speaker": speaker, "text": text})
+    speakers = [line["speaker"] for line in cleaned]
+    if len(speakers) == 2 and speakers != [nguoi_tag, khi_tag]:
+        raise ValueError(f"{where}: two lines must be {nguoi_tag} first, then {khi_tag} (one each).")
+    if last_scene and speakers[-1] != khi_tag:
+        raise ValueError(f"{where}: the final punchline must be spoken by {khi_tag}.")
+    return cleaned
+
+
+def _validate_skill_ideas(
+    ideas: Any, ideas_count: int, tags: tuple[str, str] = ("@khi", "@nguoi")
+) -> list[dict[str, Any]]:
+    """Exactly 3 scenes (SKILL v16.1), each with a Veo prompt + speaker-labelled lines."""
     if isinstance(ideas, dict):
         ideas = [ideas]
     if not isinstance(ideas, list) or not ideas:
@@ -1249,12 +1280,56 @@ def _validate_skill_ideas(ideas: Any, ideas_count: int) -> list[dict[str, Any]]:
                 f"Idea {index} must contain exactly {SKILL_MAX_SCENES} scenes."
             )
         for scene_index, scene in enumerate(scenes, start=1):
-            if not isinstance(scene, dict) or not all(
-                isinstance(scene.get(field), str) and scene.get(field).strip()
-                for field in ("prompt", "dialogue")
-            ):
-                raise ValueError(f"Idea {index}, scene {scene_index} needs prompt and dialogue.")
+            if not isinstance(scene, dict) or not str(scene.get("prompt") or "").strip():
+                raise ValueError(f"Idea {index}, scene {scene_index} needs a prompt.")
+            scene["lines"] = _validate_scene_lines(
+                scene.get("lines"), tags, f"Idea {index}, scene {scene_index}",
+                last_scene=scene_index == len(scenes),
+            )
     return ideas
+
+
+def _speaker_label(tag: str, khi_tag: str) -> str:
+    if tag == khi_tag:
+        return f"THE MACAQUE {tag} (LEFT, white tank top)"
+    return f"THE MAN {tag} (RIGHT, grey T-shirt)"
+
+
+def build_dialogue_block(lines: list[dict[str, str]], khi_tag: str = "@khi") -> str:
+    """The DIALOGUE section, written by code from `lines` so Veo cannot swap who says what."""
+    windows = ["0–4s", "5–9s"] if len(lines) == 2 else ["0–6s"]
+    out = ["DIALOGUE — EXACT VIETNAMESE WORDS, SPEAKERS NEVER SWAPPED:"]
+    for number, (line, window) in enumerate(zip(lines, windows), start=1):
+        speaker = _speaker_label(line["speaker"], khi_tag)
+        other_short = "the man" if line["speaker"] == khi_tag else "the macaque"
+        out.append(
+            f'{number}) ({window}) {speaker} speaks in their own voice while {other_short} keeps '
+            f'a closed mouth and only reacts: "{line["text"]}"'
+        )
+    if len(lines) == 2:
+        out.append(
+            "Each line is spoken ONLY by its labeled character, in this order, with that character's own "
+            "voice and lip movement. Never give a line to the other character; only one mouth moves at a time."
+        )
+    else:
+        out.append("Only this character speaks in this scene; the other stays silent and reacts.")
+    return "\n".join(out)
+
+
+_DIALOGUE_SECTION_RE = re.compile(
+    r"DIALOGUE\b[^\n]*:?[ \t]*\n.*?(?=\n[ \t]*(?:CAMERA|AUDIO|STRICT VIDEO RULES|STYLE)\b[^\n]*:|\Z)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def apply_dialogue_block(prompt: str, block: str) -> str:
+    """Replace Gemini's DIALOGUE section with ours (or add it before CAMERA / at the end)."""
+    if _DIALOGUE_SECTION_RE.search(prompt):
+        return _DIALOGUE_SECTION_RE.sub(lambda _m: block, prompt, count=1)
+    camera = re.search(r"\n[ \t]*CAMERA\b[^\n]*:", prompt, re.IGNORECASE)
+    if camera:
+        return f"{prompt[:camera.start()].rstrip()}\n\n{block}\n{prompt[camera.start():]}"
+    return f"{prompt.rstrip()}\n\n{block}"
 
 
 def generate_skill_ideas(topic: str = "", ideas_count: int = 1) -> list[dict[str, Any]]:
@@ -1290,10 +1365,13 @@ def generate_skill_ideas(topic: str = "", ideas_count: int = 1) -> list[dict[str
 {brief}
 
 Viết {ideas_count} kịch bản KHÁC NHAU (khác chủ đề/cú chốt). Mỗi kịch bản ĐÚNG 3 cảnh (HOOK → PHẢN ĐÒN + BẪY → CHỐT),
-mỗi cảnh 10 giây — không hơn, không kém. Mỗi cảnh được dán vào Google Flow RIÊNG LẺ nên prompt mỗi cảnh phải tự chứa đủ mô tả 2 nhân vật
-(LOCK mục 2), bối cảnh SET_LOCK, đạo cụ + hành động, lời thoại lip-sync tiếng Việt, góc máy, "duration 10 seconds"
-và khối luật kỹ thuật mục 6. Trong prompt tiếng Anh, gọi nhân vật đúng tag {char1_tag} (khỉ, bên trái) và
+mỗi cảnh 10 giây — không hơn, không kém. Mỗi cảnh được dán vào Google Flow RIÊNG LẺ nên "prompt" mỗi cảnh phải theo
+ĐÚNG khuôn mục 7B (CHARACTER IDENTITY LOCK, WARDROBE LOCK, LOCATION LOCK, PROPS, ACTION, DIALOGUE, CAMERA, AUDIO,
+STRICT VIDEO RULES). Trong prompt tiếng Anh, gọi nhân vật đúng tag {char1_tag} (khỉ, bên trái) và
 {char2_tag} (ông chú, bên phải).
+LUẬT CHỐNG LỘN VAI (mục 2b): "lines" của mỗi cảnh có 1–2 câu, mỗi nhân vật tối đa 1 câu; nếu 2 câu thì
+{char2_tag} trước, {char1_tag} sau; câu cuối của cảnh 3 là câu chốt của {char1_tag}. Ghi đúng người nói từng câu —
+hệ thống sẽ dựng lại mục DIALOGUE từ "lines", nên trong "prompt" chỉ cần để "DIALOGUE:" trống.
 
 Chỉ trả về JSON (không markdown) dạng list:
 [
@@ -1311,27 +1389,39 @@ Chỉ trả về JSON (không markdown) dạng list:
       {{
         "scene_title": "<HOOK / LEO THANG / BẪY / CHỐT ...>",
         "duration": "10s",
-        "first_frame": "<tag người nói trước> + <tag còn lại> + <voice của người nói chính: {char1_voice} hoặc {char2_voice}>",
-        "dialogue": "<phần A: thoại tiếng Việt của cảnh, dạng {char2_tag}: \\"...\\" | {char1_tag}: \\"...\\">",
-        "voice": "<voice của người nói chính>",
+        "lines": [
+          {{"speaker": "{char2_tag}", "text": "<câu của ông chú, ≤ 15 chữ>"}},
+          {{"speaker": "{char1_tag}", "text": "<câu của khỉ, ≤ 15 chữ>"}}
+        ],
         "type": "<dialogue | punchline cho cảnh cuối>",
-        "prompt": "<phần B: prompt Veo tiếng Anh đầy đủ cho cảnh này>"
+        "prompt": "<phần B: prompt Veo tiếng Anh đầy đủ theo khuôn mục 7B>"
       }}
     ],
     "youtube_title": "<tiêu đề YouTube Shorts ≤ 90 ký tự, có #Shorts>"
   }}
 ]"""
     ideas = _call_gemini_parsed(
-        prompt, temperature=0.9, validate=lambda data: _validate_skill_ideas(data, ideas_count)
+        prompt, temperature=0.9,
+        validate=lambda data: _validate_skill_ideas(data, ideas_count, (char1_tag, char2_tag)),
     )
+    voices = {char1_tag: char1_voice, char2_tag: char2_voice}
     for idea in ideas:
         idea["character_1"] = {"ingredient": char1_tag}
         idea["character_2"] = {"ingredient": char2_tag}
         for scene in idea["scenes"]:
-            scene["prompt"] = _clean_scene_prompt(scene["prompt"])
-            scene.setdefault("duration", f"{SKILL_SCENE_SECONDS}s")
-            scene.setdefault("first_frame", f"{char2_tag} + {char1_tag}")
-            scene.setdefault("voice", char2_voice)
+            lines = scene["lines"]
+            speakers = [line["speaker"] for line in lines]
+            other = char1_tag if speakers[0] == char2_tag else char2_tag
+            scene["speakers"] = speakers
+            scene["dialogue"] = " | ".join(f'{line["speaker"]}: "{line["text"]}"' for line in lines)
+            scene["first_frame"] = f"{speakers[0]} + {other}"
+            # One voice ingredient would make both lines sound alike, so two-speaker scenes carry
+            # no voice asset; the voices are described in the CHARACTER IDENTITY LOCK instead.
+            scene["voice"] = voices[speakers[0]] if len(speakers) == 1 else ""
+            scene["prompt"] = apply_dialogue_block(
+                _clean_scene_prompt(scene["prompt"]), build_dialogue_block(lines, char1_tag)
+            )
+            scene["duration"] = f"{SKILL_SCENE_SECONDS}s"
             scene.setdefault("type", "dialogue")
         idea["scenes"][-1]["type"] = "punchline"
         idea["duration_seconds"] = SKILL_SCENE_SECONDS * len(idea["scenes"])

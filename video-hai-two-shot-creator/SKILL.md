@@ -18,6 +18,16 @@ description: VIDEO-HÀI-KHỈ-NGƯỜI v16.1 - AI Comedy Director, Trend Hunter 
 - **@khi (bên trái)**: Khỉ macaque trưởng thành, đực, lười, lầy, cà khịa. **Luôn mặc áo ba lỗ trắng và quần đùi đầy đủ (wearing white tank top + full shorts covering lower body)**, đội mũ bảo hiểm nửa đầu. Xưng **cháu**, gọi đối phương là **chú**.
 - **@nguoi (bên phải)**: Ông chú trung niên ~45 tuổi, hiền, da ngăm, đội mũ cối/nửa đầu, áo thun xám công việc. Xưng **chú**, gọi khỉ là **cháu**.
 - **CONSISTENCY RULE**: mỗi prompt Veo PHẢI nhắc lại mô tả ngoại hình + trang phục của cả hai nhân vật (`same character design across all scenes: identical face, fur, clothing, helmet`) để các clip ghép liền mạch.
+- **GIỌNG CỐ ĐỊNH**: @khi giọng cao, nhanh, lém lỉnh (`high-pitched, quick, cheeky Vietnamese voice`); @nguoi giọng trầm, hơi khàn (`deep, slightly gruff Vietnamese voice`). Ghi giọng ngay trong khối CHARACTER IDENTITY LOCK của mọi scene.
+
+## 2b. LUẬT CHỐNG LỘN VAI, LỘN THOẠI (BẮT BUỘC)
+Veo hay gán nhầm câu thoại cho nhân vật kia nếu prompt mơ hồ. Vì vậy:
+- **Mỗi scene tối đa 2 lượt thoại, mỗi nhân vật nói đúng 1 lượt**. Không có lượt thứ 3, không để một nhân vật nói 2 câu liền.
+- **Thứ tự cố định**: @nguoi nói trước, @khi đáp sau (cả 3 scene). Scene 3 có thể chỉ có @khi nói câu chốt; nếu có cả hai thì @nguoi hỏi ngắn trước, @khi chốt sau cùng.
+- **Gọi tên kèm nhận dạng mỗi khi nhắc tới nhân vật**: viết "THE MAN @nguoi (RIGHT, grey T-shirt)" và "THE MACAQUE @khi (LEFT, white tank top)". KHÔNG viết trống "Man:", "Monkey:", "he", "she", "the other one".
+- **Chia giờ cho từng lượt**: lượt 1 khoảng 0–4s, lượt 2 khoảng 5–9s. Trong lúc một bên nói, bên kia **ngậm miệng** và chỉ phản ứng bằng nét mặt.
+- **Mỗi câu thoại ≤ 15 chữ**, ghi nguyên văn trong ngoặc kép, không dịch, không đổi chữ.
+- Hệ thống sẽ tự dựng lại khối DIALOGUE từ trường `lines`, nên `lines` phải ghi đúng người nói của từng câu.
 
 ## 3. CÔNG THỨC VIRAL BẮT BUỘC (rút ra từ dữ liệu thực tế của kênh)
 - **LUẬT CÂU CHỐT (PUNCHLINE LAW)**: câu cuối cùng của @khi phải là một khẳng định **nghe có vẻ vô lý / ngược đời nhưng NGẪM LẠI THÌ ĐÚNG** (chơi chữ hoặc triết lý đời). Mục tiêu: khiến @nguoi cứng họng và khiến người xem muốn gõ bình luận "đúng mà 🤣", "nó nói đúng đấy". TUYỆT ĐỐI tránh câu đùa nhảm chỉ để vui mà không có "cái lý".
@@ -59,7 +69,38 @@ SCENE 2 [PHẢN ĐÒN + BẪY] — ...
 SCENE 3 [CHỐT] — @khi: "<câu chốt vô lý-mà-đúng>" + cười
 ```
 
-**B. PROMPT VEO TỪNG SCENE** (tiếng Anh, cho Google Flow/Veo) — mỗi scene 1 block gồm: mô tả 2 nhân vật (lock theo mục 2) + bối cảnh (SET_LOCK) + đạo cụ/hành động + lời thoại (lip-sync tiếng Việt) + camera + `duration 10 seconds` + khối luật kỹ thuật mục 6.
+**B. PROMPT VEO TỪNG SCENE** (tiếng Anh, cho Google Flow/Veo). Mỗi scene được dán vào Flow RIÊNG LẺ nên mỗi block phải tự đủ, theo đúng khuôn dưới đây (giữ nguyên tên các mục, khối LOCK giống hệt nhau ở cả 3 scene):
+```
+Create a 10-second photorealistic cinematic comedy video, vertical 9:16, duration 10 seconds. Scene <n> of 3<, continuing seamlessly from Scene n-1>.
+
+CHARACTER IDENTITY LOCK:
+@khi = THE MACAQUE, always on the LEFT: the same adult male macaque in all scenes, identical face, brown fur, expressive mischievous eyes, natural macaque body proportions. Wearing a plain white sleeveless tank top, full shorts covering the lower body, and a half helmet. Voice: high-pitched, quick, cheeky Vietnamese.
+@nguoi = THE MAN, always on the RIGHT: the same Vietnamese middle-aged man, about 45 years old, tan skin, identical face and body. Wearing a grey work T-shirt and a half helmet. Voice: deep, slightly gruff Vietnamese.
+
+WARDROBE LOCK:
+Both characters wear exactly the same clothing and helmets in all three scenes. No changes.
+
+LOCATION LOCK:
+<cùng một câu mô tả bối cảnh SET_LOCK cho cả 3 scene>
+
+PROPS:
+<đạo cụ của scene>
+
+ACTION:
+<ai làm gì, luôn gọi "THE MAN @nguoi (RIGHT)" / "THE MACAQUE @khi (LEFT)">
+
+DIALOGUE:
+(hệ thống tự điền từ `lines`)
+
+CAMERA:
+<khuôn hình, chuyển động; scene 3 kết bằng cận mặt @khi cười play-face>
+
+AUDIO:
+Natural outdoor ambience, <SFX thật của đạo cụ>. No background music.
+
+STRICT VIDEO RULES:
+Strictly NO text overlays, NO on-screen labels, NO character names printed on the video image, no logos, no watermark, no subtitles, clean video frame without text. Characters MUST complete the entire sentence fully before any cut or transition. Each line is spoken only by its labeled character; never swap the lines.
+```
 
 **C. CAPTION** (theo văn phong đã viral của kênh): viết lại câu chốt của @khi dưới dạng châm biếm + emoji 🔧😂.
 
@@ -79,4 +120,4 @@ SCENE 3 [CHỐT] — @khi: "<câu chốt vô lý-mà-đúng>" + cười
 2. Viết cú CHỐT trước (theo Luật câu chốt mục 3), rồi viết ngược lên HOOK để mọi thoại dẫn tới cú chốt.
 3. Rải đạo cụ/hành động + đổi góc máy theo mục 5.
 4. Xuất đủ 5 phần theo mục 7.
-5. Tự kiểm: câu chốt có "cái lý" không? bối cảnh có sáng không? mỗi scene có hành động không? có đủ khối anti-text không? — thiếu thì sửa trước khi trả.
+5. Tự kiểm: câu chốt có "cái lý" không? bối cảnh có sáng không? mỗi scene có hành động không? có đủ khối anti-text không? mỗi scene có tối đa 2 lượt, @nguoi trước @khi sau, câu cuối của scene 3 là của @khi không? — thiếu thì sửa trước khi trả.

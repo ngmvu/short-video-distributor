@@ -219,6 +219,19 @@ class ScheduleBotTests(StorageIsolation):
 
 
 class SkillIdeaGeneratorTests(unittest.TestCase):
+    TWO = [{"speaker": "@nguoi", "text": "Giảm 70% mà không mua thì phí!"},
+           {"speaker": "@khi", "text": "Không mua là tiết kiệm 100% đấy chú!"}]
+
+    def _scene(self, lines=None, prompt=None) -> dict:
+        return {
+            "prompt": prompt or (
+                "Create a 10-second video.\n\nCHARACTER IDENTITY LOCK:\n@khi = THE MACAQUE\n\n"
+                "ACTION:\nThe man shows his phone.\n\nDIALOGUE:\nMan: \"câu bị gán nhầm\"\n\n"
+                "CAMERA:\nMedium shot.\n\nSTRICT VIDEO RULES:\nNo text."
+            ),
+            "lines": lines or self.TWO,
+        }
+
     def test_skill_drives_prompt_and_output_shape(self) -> None:
         reply = json.dumps([{
             "title": "Lương và giá",
@@ -227,7 +240,8 @@ class SkillIdeaGeneratorTests(unittest.TestCase):
             "hashtags": "#haihuoc #reelsfb",
             "engagement_prompt": "Khỉ nói sai chỗ nào?",
             "youtube_title": "Lương không tăng",
-            "scenes": [{"prompt": f"p{n}", "dialogue": f"d{n}"} for n in range(3)],
+            "scenes": [self._scene(), self._scene(),
+                       self._scene([{"speaker": "@khi", "text": "Sale săn hết tiền của chú!"}])],
         }])
         with patch.object(idea_generator, "_call_gemini_json", return_value=reply) as call, \
                 patch.object(idea_generator, "_load_recent_draft_titles", return_value=[]):
@@ -235,6 +249,7 @@ class SkillIdeaGeneratorTests(unittest.TestCase):
         prompt = call.call_args.args[0]
         self.assertIn("VIDEO-HÀI-KHỈ-NGƯỜI v16.1", prompt)  # the SKILL.md content is sent
         self.assertIn("TOPIC / INPUT: giá vàng", prompt)
+        self.assertIn("LUẬT CHỐNG LỘN VAI", prompt)
         idea = ideas[0]
         self.assertEqual(idea["duration_seconds"], 30)
         self.assertIn("ĐÚNG 3 cảnh", prompt)
@@ -245,15 +260,46 @@ class SkillIdeaGeneratorTests(unittest.TestCase):
         self.assertIn("Khỉ nói sai chỗ nào?", youtube["caption"])
         self.assertIn("#Shorts", youtube["hashtags"])
 
-    def test_scene_count_other_than_3_is_rejected(self) -> None:
-        with self.assertRaises(ValueError):
-            idea_generator._validate_skill_ideas(
-                [{"title": "x", "scenes": [{"prompt": "p", "dialogue": "d"}] * 2}], 1
-            )
-        with self.assertRaises(ValueError):
-            idea_generator._validate_skill_ideas(
-                [{"title": "x", "scenes": [{"prompt": "p", "dialogue": "d"}] * 4}], 1
-            )
+        two, _, last = idea["scenes"]
+        # code rewrites the DIALOGUE block from `lines`: Gemini's mislabelled line is gone
+        self.assertNotIn("câu bị gán nhầm", two["prompt"])
+        self.assertIn('THE MAN @nguoi (RIGHT, grey T-shirt) speaks', two["prompt"])
+        self.assertIn('"Giảm 70% mà không mua thì phí!"', two["prompt"])
+        self.assertLess(two["prompt"].index("@nguoi (RIGHT"), two["prompt"].index("@khi (LEFT"))
+        self.assertLess(two["prompt"].index("DIALOGUE"), two["prompt"].index("CAMERA"))
+        self.assertEqual(two["speakers"], ["@nguoi", "@khi"])
+        self.assertEqual(two["voice"], "")  # two speakers → no single voice asset
+        self.assertEqual(two["dialogue"], '@nguoi: "Giảm 70% mà không mua thì phí!" | @khi: "Không mua là tiết kiệm 100% đấy chú!"')
+        self.assertEqual((last["speakers"], last["first_frame"]), (["@khi"], "@khi + @nguoi"))
+        self.assertTrue(last["voice"])  # one speaker keeps that speaker's voice asset
+
+    def test_swapped_or_bad_lines_are_rejected(self) -> None:
+        validate = idea_generator._validate_skill_ideas
+        swapped = list(reversed(self.TWO))
+        for scenes in (
+            [self._scene()] * 2,  # 2 scenes
+            [self._scene()] * 4,  # 4 scenes
+            [self._scene(swapped), self._scene(), self._scene()],  # @khi before @nguoi
+            [self._scene([self.TWO[0], self.TWO[0]]), self._scene(), self._scene()],  # same speaker twice
+            [self._scene(), self._scene(), self._scene([self.TWO[0]])],  # punchline not by @khi
+            [self._scene([{"speaker": "Monkey", "text": "x"}]), self._scene(), self._scene()],
+        ):
+            with self.assertRaises(ValueError):
+                validate([{"title": "x", "scenes": [dict(s) for s in scenes]}], 1)
+
+    def test_flow_prompt_for_two_speakers_has_no_single_speaker_rule_or_old_outfit(self) -> None:
+        from core import flow_runner
+
+        scene = {
+            "prompt": "CHARACTER IDENTITY LOCK:\n@khi = THE MACAQUE ...\n\n"
+                      + idea_generator.build_dialogue_block(self.TWO),
+            "speakers": ["@nguoi", "@khi"], "first_frame": "@nguoi + @khi",
+            "dialogue": "d", "voice": "",
+        }
+        prompt = flow_runner._scene_video_prompt({}, scene)
+        self.assertNotIn("only speaker", prompt)
+        self.assertNotIn("mechanic", prompt)  # old outfit lock not appended
+        self.assertIn("@nguoi speaks first, then @khi answers", prompt)
 
 
 if __name__ == "__main__":
