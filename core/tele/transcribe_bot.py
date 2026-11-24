@@ -36,7 +36,7 @@ _background_tasks: set[asyncio.Task[None]] = set()
 PROMPT = (
     "🎵 <b>Bóc thoại video TikTok</b>\n"
     "📎 Dán link video TikTok vào đây (một hoặc nhiều link, tối đa "
-    f"{MAX_LINKS_PER_REQUEST} link/tin nhắn). Link YouTube Shorts cũng được.\n"
+    f"{MAX_LINKS_PER_REQUEST} link/tin nhắn). Link YouTube Shorts và Facebook (Reels / video) cũng được.\n"
     "<i>Ví dụ: https://vt.tiktok.com/ZSp4Stubm/</i>\n"
     "Dán xong cứ gửi tiếp link khác; bấm ✅ Xong khi không cần nữa."
 )
@@ -85,7 +85,8 @@ async def handle_text(message: Any, text: str) -> bool:
         await message.reply_text(
             "⚠️ Không thấy link video TikTok hợp lệ. Link đúng dạng "
             "<code>https://vt.tiktok.com/...</code> hoặc "
-            "<code>https://www.tiktok.com/@user/video/123</code>.",
+            "<code>https://www.tiktok.com/@user/video/123</code>, "
+            "<code>https://www.facebook.com/reel/123</code> hoặc <code>https://fb.watch/...</code>.",
             parse_mode=ParseMode.HTML,
             reply_markup=_done_markup(),
         )

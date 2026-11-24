@@ -227,7 +227,7 @@ async def handle_callback(query: Any) -> None:
         await query.answer()
         await query.message.reply_text(
             "➕ Gửi ý tưởng, mỗi tin nhắn một ý: câu chốt, tình huống, chuyện nghe được ngoài đời…\n"
-            "Hoặc dán link TikTok / YouTube Shorts đang hot để rút tình huống.\n"
+            "Hoặc dán link TikTok / YouTube Shorts / Facebook Reels đang hot để rút tình huống.\n"
             "Bấm ✅ Xong khi gửi xong.",
             reply_markup=_add_mode_markup(),
         )

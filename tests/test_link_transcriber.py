@@ -36,6 +36,33 @@ class LinkTests(unittest.TestCase):
         self.assertIsNone(video_platform("https://www.tiktok.com/@user"))
         self.assertIsNone(video_platform("https://example.com/video.mp4"))
 
+    def test_facebook_video_links(self) -> None:
+        for url in (
+            "https://www.facebook.com/reel/1234567890",
+            "https://m.facebook.com/reel/1234567890?mibextid=abc",
+            "https://www.facebook.com/watch?v=1234567890",
+            "https://www.facebook.com/somepage/videos/1234567890/",
+            "https://www.facebook.com/share/r/1AbCdEf/",
+            "https://www.facebook.com/share/v/1AbCdEf/",
+            "https://fb.watch/abcDEF123/",
+        ):
+            self.assertEqual(video_platform(url), "facebook", url)
+        for url in (
+            "https://www.facebook.com/somepage",
+            "https://www.facebook.com/groups/123/posts/456",
+            "https://fb.watch/",
+        ):
+            self.assertIsNone(video_platform(url), url)
+
+    def test_facebook_login_error_explains_cookies(self) -> None:
+        from core import link_transcriber as lt
+
+        with patch.dict("os.environ", {"FACEBOOK_COOKIES_FILE": "", "YTDLP_COOKIES_FILE": ""}):
+            text = lt._download_error_text(
+                Exception("ERROR: [facebook] 123: Cannot parse data; please report this issue"), "facebook"
+            )
+        self.assertIn("FACEBOOK_COOKIES_FILE", text)
+
     def test_extract_links_from_pasted_text(self) -> None:
         links, ignored = extract_video_links(
             "xem cái này https://vt.tiktok.com/A/, và https://vt.tiktok.com/A/\n"

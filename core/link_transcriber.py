@@ -31,8 +31,12 @@ MAX_LINKS_PER_REQUEST = 10
 TELEGRAM_TEXT_LIMIT = 3900
 # TikTok exposes the post's linked "sound" (often background music) as format_id "audio";
 # it is not the video's own soundtrack, so skip it and fall back to the video file.
-AUDIO_FORMAT = "bestaudio[format_id!=audio]/best[acodec!=none][vcodec!=none]/best[acodec!=none]"
-PLATFORM_LABELS = {"youtube": "YouTube", "tiktok": "TikTok"}
+# Facebook Reels only expose muxed "sd"/"hd" mp4s whose codecs yt-dlp leaves unknown (None), which
+# the [acodec!=none] filters skip — so plain "best" comes last.
+AUDIO_FORMAT = "bestaudio[format_id!=audio]/best[acodec!=none][vcodec!=none]/best[acodec!=none]/best"
+PLATFORM_LABELS = {"youtube": "YouTube", "tiktok": "TikTok", "facebook": "Facebook"}
+# Single Facebook videos/reels: /reel/123, /watch?v=, /<page>/videos/123, /share/r|v/<id>, fb.watch/<id>
+_FACEBOOK_VIDEO_PATH = re.compile(r"/(?:reel|reels|videos|watch|share/[rv])(?:/|\?|$)|/video\.php")
 _URL_PATTERN = re.compile(r"https?://[^\s<>\"']+")
 
 
@@ -64,10 +68,14 @@ class TranscriptResult:
 
 
 def video_platform(url: str) -> str | None:
-    """Return "tiktok"/"youtube" for a single-video link, otherwise None."""
+    """Return "tiktok"/"youtube"/"facebook" for a single-video link, otherwise None."""
     parts = urlsplit(url)
     host = (parts.hostname or "").lower()
     path = parts.path
+    if host == "fb.watch" and path.strip("/"):
+        return "facebook"
+    if host in {"fb.com", "www.fb.com"} or host == "facebook.com" or host.endswith(".facebook.com"):
+        return "facebook" if _FACEBOOK_VIDEO_PATH.search(path + ("?" if parts.query else "")) else None
     if host.endswith("tiktok.com"):
         if "/video/" in path or host.startswith(("vm.", "vt.")) or path.startswith("/t/"):
             return "tiktok"
@@ -111,25 +119,47 @@ def _yt_dlp() -> Any:
     return yt_dlp
 
 
-def _base_options() -> dict[str, Any]:
-    options: dict[str, Any] = {"quiet": True, "no_warnings": True, "noprogress": True}
-    cookies = os.getenv("YTDLP_COOKIES_FILE", "").strip()
-    if cookies:
-        path = Path(cookies).expanduser()
+def _cookie_file(platform: str = "") -> Path | None:
+    """FACEBOOK_COOKIES_FILE for Facebook links (falls back to YTDLP_COOKIES_FILE)."""
+    keys = ["FACEBOOK_COOKIES_FILE", "YTDLP_COOKIES_FILE"] if platform == "facebook" else ["YTDLP_COOKIES_FILE"]
+    for key in keys:
+        value = os.getenv(key, "").strip()
+        if not value:
+            continue
+        path = Path(value).expanduser()
         path = path if path.is_absolute() else ROOT_DIR / path
         if path.is_file():
-            options["cookiefile"] = str(path)
-        else:
-            LOGGER.warning("YTDLP_COOKIES_FILE không tồn tại: %s", path)
+            return path
+        LOGGER.warning("%s không tồn tại: %s", key, path)
+    return None
+
+
+def _base_options(platform: str = "") -> dict[str, Any]:
+    options: dict[str, Any] = {"quiet": True, "no_warnings": True, "noprogress": True}
+    cookies = _cookie_file(platform)
+    if cookies:
+        options["cookiefile"] = str(cookies)
     return options
 
 
-def _download_error_text(exc: Exception) -> str:
+_FACEBOOK_LOGIN_HINTS = ("login", "log in", "logged-in", "registered users", "cannot parse data", "checkpoint")
+
+
+def _download_error_text(exc: Exception, platform: str = "") -> str:
     text = str(exc).replace("ERROR: ", "")
     if "confirm you" in text and "not a bot" in text:
         return (
             "YouTube yêu cầu đăng nhập cho IP này. Xuất cookies YouTube của bạn ra file "
             "cookies.txt và đặt YTDLP_COOKIES_FILE trong .env (xem README)."
+        )
+    if platform == "facebook" and any(hint in text.lower() for hint in _FACEBOOK_LOGIN_HINTS):
+        has_cookies = _cookie_file("facebook") is not None
+        return (
+            "Video này không công khai (Facebook chỉ cho người đã đăng nhập / bạn bè / thành viên nhóm xem). "
+            "Hãy dùng link video công khai của Trang (Page), hoặc nếu bắt buộc thì đặt FACEBOOK_COOKIES_FILE trong .env."
+            if not has_cookies else
+            "Facebook từ chối dù đã có cookies: cookies có thể đã hết hạn / bị đăng xuất, "
+            "hoặc video ở chế độ riêng tư. Xuất lại cookies mới."
         )
     return text.split(" Use --cookies")[0][:300]
 
@@ -138,8 +168,9 @@ def download_audio(url: str, download_dir: Path = DOWNLOAD_DIR) -> tuple[Path, d
     """Download one video's soundtrack. Returns (file path, yt-dlp info)."""
     yt_dlp = _yt_dlp()
     download_dir.mkdir(parents=True, exist_ok=True)
+    platform = video_platform(url) or ""
     options = {
-        **_base_options(),
+        **_base_options(platform),
         "noplaylist": True,
         "format": AUDIO_FORMAT,
         "max_filesize": MAX_DOWNLOAD_BYTES,
@@ -151,7 +182,7 @@ def download_audio(url: str, download_dir: Path = DOWNLOAD_DIR) -> tuple[Path, d
         with yt_dlp.YoutubeDL(options) as ydl:
             info = ydl.extract_info(url, download=True)
     except yt_dlp.utils.DownloadError as exc:
-        raise TranscribeError(f"Không tải được video: {_download_error_text(exc)}") from exc
+        raise TranscribeError(f"Không tải được video: {_download_error_text(exc, platform)}") from exc
     downloads = info.get("requested_downloads") or []
     path = Path(downloads[0]["filepath"]) if downloads else Path(ydl.prepare_filename(info))
     if not path.is_file():

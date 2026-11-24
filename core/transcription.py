@@ -6,6 +6,7 @@ import ipaddress
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -319,6 +320,11 @@ def vad_enabled() -> bool:
     return _vad_ok
 
 
+# Lines Vietnamese Whisper invents over music / silence (YouTube outro credits from its training
+# data). They name specific channels, so dropping them never removes real speech.
+_HALLUCINATION_RE = re.compile(r"ghiền\s*mì\s*gõ|la\s*la\s*school", re.IGNORECASE)
+
+
 def transcribe_media(
     model: Any,
     media_path: Path,
@@ -374,6 +380,7 @@ def transcribe_media(
             "text": segment.text.strip(),
         }
         for segment in raw_segments
+        if not _HALLUCINATION_RE.search(segment.text or "")
     ]
     digest = hashlib.sha256(source_url.encode("utf-8")).hexdigest()[:16]
     output_path = output_dir / f"{digest}.json"
