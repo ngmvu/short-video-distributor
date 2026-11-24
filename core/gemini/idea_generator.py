@@ -1351,7 +1351,8 @@ def generate_skill_ideas(topic: str = "", ideas_count: int = 1) -> list[dict[str
     brief = (
         f"TOPIC / INPUT: {topic}"
         if topic
-        else "TOPIC / INPUT: (người dùng không nhập) — tự chọn chủ đề nóng theo mục 8 của SKILL."
+        else "TOPIC / INPUT: (người dùng không nhập) — tự chọn trend mạng xã hội đang hot theo mục 8a của SKILL "
+        "(hết trend phù hợp thì lấy mục 8b)."
     )
     if recent:
         brief += "\nKhông lặp lại các chủ đề gần đây: " + "; ".join(recent)

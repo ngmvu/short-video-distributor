@@ -5,7 +5,7 @@ description: VIDEO-HÀI-KHỈ-NGƯỜI v16.1 - AI Comedy Director, Trend Hunter 
 # SKILL: VIDEO-HÀI-KHỈ-NGƯỜI v16.1 — AI COMEDY DIRECTOR, TREND HUNTER & VIRAL ENGINE (3 SCENES)
 
 ## 0. THAM SỐ ĐẦU VÀO & SỐ CẢNH (CỐ ĐỊNH 3)
-- `TOPIC / INPUT`: nội dung, tình huống, ý tưởng, bài hát hoặc tin tức do người dùng nhập vào (nếu người dùng chưa cho → tự đề xuất 3 chủ đề nóng theo mục 8, chọn 1 để làm mẫu ngay).
+- `TOPIC / INPUT`: nội dung, tình huống, ý tưởng, bài hát hoặc tin tức do người dùng nhập vào (nếu người dùng chưa cho → tự đề xuất 3 trend mạng xã hội đang hot theo mục 8a — hết trend thì lấy mục 8b — chọn 1 để làm mẫu ngay).
 - `SCENE_COUNT` = **3 (CỐ ĐỊNH, ~30s, 10s/scene)**. Không hỏi, không tự tăng/giảm số cảnh — mọi kịch bản luôn đúng 3 cảnh. Nội dung dài/nhiều vế thì CẮT GỌN còn vế đắt nhất, không kéo thêm cảnh.
 - `SET_LOCK`: bối cảnh (mặc định theo mục 5 — ngoài trời ban ngày sáng, sạch).
 
@@ -108,15 +108,25 @@ Strictly NO text overlays, NO on-screen labels, NO character names printed on th
 
 **E. CÂU MỒI COMMENT** (để chủ kênh tự comment đầu tiên, kích tranh luận): ví dụ "Khỉ nói sai chỗ nào không anh em? 😂".
 
-## 8. THƯ VIỆN CHỦ ĐỀ NÓNG & GỢI Ý CÚ CHỐT (chơi chữ đời thường)
-Ưu tiên các chủ đề ai cũng gắn được bản thân/bạn bè:
+## 8. NGUỒN Ý TƯỞNG: TREND MẠNG XÃ HỘI TRƯỚC, THƯ VIỆN CHỦ ĐỀ SAU
+### 8a. Săn trend mạng xã hội (ƯU TIÊN SỐ 1)
+Kịch bản phải bắt **trend / xu hướng đang hot trên mạng xã hội Việt Nam** (TikTok, Facebook Reels, YouTube Shorts) để người xem thấy "đúng chuyện đang bàn".
+- **Nguồn trend**: hashtag TikTok Việt Nam đang tăng trong tuần (vd #BlackFriday, #GTA6), sự kiện / ngày lễ đang diễn ra hôm nay (vd Ngày Văn hóa Việt Nam 24/11), chủ đề Facebook đang tranh luận nhiều, meme / câu cửa miệng đang lan.
+- **Chọn trend có tình huống để bẻ lái**, KHÔNG chọn chỉ vì nhiều view. Một trend dùng được khi: (1) ai cũng hiểu ngay mâu thuẫn mà không cần giải thích; (2) diễn được bằng đạo cụ + hành động; (3) ra được câu chốt "vô lý mà đúng" có thể thành câu cửa miệng; (4) dễ gây tranh luận ở bình luận.
+- **Biến trend thành tình huống đời thường của khỉ – chú**: vd Black Friday → chú ôm đống hàng giảm giá, khỉ chốt "Chú tưởng chú săn sale… hóa ra sale săn hết tiền của chú!"; GTA6 → chú đòi khỉ đi làm, khỉ mê game.
+- **An toàn**: chỉ mượn chủ đề, nội dung hoàn toàn hư cấu; KHÔNG nhắc tên, hình ảnh, giọng của người thật / người nổi tiếng / thương hiệu cụ thể; BỎ trend về tin buồn, tai nạn, thiên tai, bạo lực, chính trị, tôn giáo.
+- **Trung thực về số liệu**: nếu ghi lượt xem / hashtag thì nêu nguồn và kỳ thống kê; không bịa số, không khẳng định một video cụ thể đang viral khi chưa kiểm chứng.
+- Khi `TOPIC / INPUT` đã là một trend thì giữ đúng trend đó; khi `TOPIC / INPUT` là chủ đề chung (vd "Thứ 3 — Tiền bạc") thì ưu tiên ghép với một trend mạng xã hội đang hot phù hợp chủ đề đó.
+
+### 8b. Thư viện chủ đề dự phòng & gợi ý cú chốt (chơi chữ đời thường)
+Dùng khi không có trend phù hợp. Ưu tiên các chủ đề ai cũng gắn được bản thân/bạn bè:
 - **Tiền bạc – xã hội**: cò đất, giá vàng, giá xăng, lương thưởng Tết, vay ngân hàng, lạm phát.
 - **Đời sống – gia đình**: vợ chồng, nhậu nhẹt, lương về đưa vợ, đi làm xa, deadline, sếp.
 - **Nghề nghiệp**: thợ sửa xe, công nhân, shipper, bán hàng online.
 → Cú chốt mẫu (dạng vô lý-mà-đúng): "Lương không tăng mà giá tăng, nghĩa là chú đang được giảm giá chính mình đấy!" / "Có tiền thì sợ mất, không tiền thì khỏi lo — cháu đang giàu kiểu an toàn nhất!"
 
 ## 9. QUY TRÌNH LÀM VIỆC
-1. Nhận nội dung/chủ đề (`TOPIC / INPUT`), luôn viết đúng 3 cảnh × 10s, dùng `SET_LOCK` mặc định (trừ khi nội dung yêu cầu khác).
+1. Nhận nội dung/chủ đề (`TOPIC / INPUT`), ghép với trend mạng xã hội theo mục 8a nếu hợp, luôn viết đúng 3 cảnh × 10s, dùng `SET_LOCK` mặc định (trừ khi nội dung yêu cầu khác).
 2. Viết cú CHỐT trước (theo Luật câu chốt mục 3), rồi viết ngược lên HOOK để mọi thoại dẫn tới cú chốt.
 3. Rải đạo cụ/hành động + đổi góc máy theo mục 5.
 4. Xuất đủ 5 phần theo mục 7.
