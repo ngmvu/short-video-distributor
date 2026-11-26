@@ -65,6 +65,23 @@ class StorageIsolation(unittest.TestCase):
 
 
 class ScheduleConfigTests(StorageIsolation):
+    def test_logo_mode_cycles_and_old_flag_still_works(self) -> None:
+        self.assertEqual(ps.logo_mode({}), "remove")
+        self.assertEqual(ps.logo_mode({"remove_logo": False}), "none")  # configs saved before logo_mode
+        self.assertEqual(ps.logo_mode({"remove_logo": True, "logo_mode": "sticker"}), "sticker")
+        ps.update_config(logo_mode="sticker")
+        schedule = ps.schedule_for(datetime(2026, 11, 26, 19, 0))
+        self.assertEqual((schedule["logo_mode"], schedule["remove_logo"]), ("sticker", True))
+
+        from core import watermark
+        sticker_out = MagicMock(output=Path("v-sticker.mp4"))
+        with patch.object(watermark, "cover_logo_with_sticker", return_value=sticker_out) as cover, \
+                patch.object(watermark, "remove_gemini_watermark") as remove:
+            self.assertEqual(ps.prepare_video(Path("v.mp4"), schedule), Path("v-sticker.mp4"))
+            self.assertEqual(ps.prepare_video(Path("v.mp4"), {"logo_mode": "none"}), Path("v.mp4"))
+        cover.assert_called_once_with(Path("v.mp4"))
+        remove.assert_not_called()
+
     def test_parse_slots(self) -> None:
         self.assertEqual(ps.parse_slots("11:30, 19h 7.05 21 25:00 abc"), ["11:30", "19:00", "07:05", "21:00"])
 

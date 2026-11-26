@@ -39,12 +39,23 @@ DEFAULTS: dict[str, Any] = {
     "lead_hours": 3,
     "ideas_per_slot": 2,
     "topic": "",
-    "remove_logo": True,
+    "remove_logo": True,  # legacy on/off; logo_mode wins when present
+    "logo_mode": "",  # "remove" (xóa ✦) | "sticker" (che bằng nhãn dán) | "none" (giữ nguyên)
     "append_outro": True,
     "auto_approve_minutes": 60,
     "generated": {},
     "batches": {},
 }
+LOGO_MODES = ("remove", "sticker", "none")
+LOGO_MODE_LABELS = {"remove": "Xóa", "sticker": "Nhãn dán", "none": "Giữ nguyên"}
+
+
+def logo_mode(settings: dict[str, Any]) -> str:
+    """logo_mode of a config / schedule block, falling back to the old remove_logo flag."""
+    mode = str(settings.get("logo_mode") or "").strip()
+    if mode in LOGO_MODES:
+        return mode
+    return "remove" if settings.get("remove_logo", True) else "none"
 _SLOT_RE = re.compile(r"^\s*([01]?\d|2[0-3])\s*(?:[:hH.]\s*([0-5]\d)?)?\s*$")
 
 
@@ -206,7 +217,8 @@ def schedule_for(publish_at: datetime, config: dict[str, Any] | None = None) -> 
     return {
         "publish_at": publish_at.astimezone().isoformat(timespec="seconds"),
         "platforms": ["youtube"],
-        "remove_logo": bool(config.get("remove_logo", True)),
+        "remove_logo": logo_mode(config) != "none",
+        "logo_mode": logo_mode(config),
         "append_outro": bool(config.get("append_outro", True)),
     }
 
@@ -237,15 +249,19 @@ def youtube_publish_at(schedule: dict[str, Any], now: datetime | None = None) ->
 
 
 def prepare_video(video_path: Path, schedule: dict[str, Any]) -> Path:
-    """Remove the Gemini sparkle when asked; fall back to the original if it isn't there."""
-    if not schedule.get("remove_logo", True):
+    """Remove the Gemini sparkle — or cover it with the sticker — as the schedule asks;
+    fall back to the original if the logo isn't there."""
+    mode = logo_mode(schedule)
+    if mode == "none":
         return video_path
-    from core.watermark import WatermarkError, remove_gemini_watermark
+    from core.watermark import WatermarkError, cover_logo_with_sticker, remove_gemini_watermark
 
     try:
+        if mode == "sticker":
+            return cover_logo_with_sticker(video_path).output
         return remove_gemini_watermark(video_path).output
     except WatermarkError as exc:
-        LOGGER.warning("Không xóa được logo ✦ (%s); đăng bản gốc.", exc)
+        LOGGER.warning("Không %s logo ✦ (%s); đăng bản gốc.", "che" if mode == "sticker" else "xóa", exc)
         return video_path
 
 

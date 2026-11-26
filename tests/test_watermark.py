@@ -97,6 +97,41 @@ class RemoveWatermarkTests(unittest.TestCase):
         self.assertFalse((self.dir / "plain-nologo.mp4").exists())
         self.assertTrue(watermark.remove_gemini_watermark(src, force=True).output.exists())
 
+    def test_sticker_covers_every_logo_pixel_and_stays_small(self) -> None:
+        src = self.dir / "clip.mp4"
+        _make_video(src, 720, 1280, 4, with_logo=True)
+        result = watermark.cover_logo_with_sticker(src)
+
+        self.assertEqual(result.output, self.dir / "clip-sticker.mp4")
+        self.assertEqual((result.width, result.height), (720, 1280))
+        mask, x, y = watermark._mask_for(720, 1280)
+        size = mask.shape[0]
+        # inside the frame, and "vừa" the logo: well under 3× its size
+        self.assertTrue(0 <= result.x and result.x + result.sticker_width <= 720)
+        self.assertTrue(0 <= result.y and result.y + result.sticker_height <= 1280)
+        self.assertLess(result.sticker_height, size * 3)
+        # every logo pixel sits under an opaque part of the scaled sticker
+        rgba = watermark._read_rgba(watermark.DEFAULT_STICKER)
+        alpha = watermark._resize_2d(rgba[..., 3] / 255.0, result.sticker_height, result.sticker_width)
+        logo = mask > 0.05
+        under = alpha[y - result.y: y - result.y + size, x - result.x: x - result.x + size]
+        self.assertGreaterEqual(float(under[logo].min()), 0.95)
+        # the video outside the sticker is untouched apart from re-encoding
+        before, after = _decode(src, 720, 1280), _decode(result.output, 720, 1280)
+        self.assertEqual(after.shape, before.shape)
+        self.assertLess(np.abs(after - before)[:, :1000].mean(), 3)
+
+    def test_fit_sticker_avoids_holes_and_frame_edges(self) -> None:
+        alpha = np.ones((100, 100), np.float32)
+        alpha[40:60, 40:60] = 0  # a transparent hole in the middle of the sticker
+        logo = np.ones((20, 20), bool)
+        x, y, w, h = watermark.fit_sticker(alpha, logo, 170, 170, 200, 200)
+        self.assertTrue(0 <= x and x + w <= 200 and 0 <= y and y + h <= 200)
+        scaled = watermark._resize_2d(alpha, h, w)
+        self.assertGreaterEqual(float(scaled[170 - y: 190 - y, 170 - x: 190 - x].min()), 0.98)
+        bigger = watermark.fit_sticker(alpha, logo, 170, 170, 200, 200, scale=1.5)
+        self.assertGreater(bigger[3], h)
+
     def test_other_resolutions_scale_the_nearest_mask(self) -> None:
         mask, x, y = watermark._mask_for(2160, 3840)
         ref, rx, ry = watermark._mask_for(1080, 1920)
@@ -173,8 +208,40 @@ class WatermarkBotTests(unittest.TestCase):
         _run(scenario())
         self.assertIn("Đã xóa logo", status.edit_text.await_args.args[0])
 
+    def test_chelogo_command_covers_with_sticker(self) -> None:
+        output = self.downloads / "a-scene3-sticker.mp4"
+        output.write_bytes(b"done")
+        status = MagicMock(edit_text=AsyncMock())
+        message = SimpleNamespace(
+            chat_id=1, reply_text=AsyncMock(return_value=status), get_bot=MagicMock(return_value="bot")
+        )
+        result = watermark.StickerResult(output, 549, 1132, 88, 90, 572, 1132, 0.91, 720, 1280)
+
+        async def scenario() -> None:
+            with (
+                patch.object(watermark_bot, "cover_logo_with_sticker", return_value=result) as cover,
+                patch.object(watermark_bot, "remove_gemini_watermark") as remove,
+                patch.object(watermark_bot, "send_video_file", AsyncMock()),
+            ):
+                await watermark_bot.handle_command(message, ["a-scene3.mp4"], mode="sticker")
+                await asyncio.gather(*watermark_bot._background_tasks)
+            cover.assert_called_once_with((self.downloads / "a-scene3.mp4").resolve())
+            remove.assert_not_called()
+
+        _run(scenario())
+        self.assertIn("nhãn dán 88×90", status.edit_text.await_args.args[0])
+
+    def test_mode_button_switches_to_sticker(self) -> None:
+        message = SimpleNamespace(chat_id=1, reply_text=AsyncMock())
+        _run(watermark_bot.start_mode(message))
+        self.assertEqual(watermark_bot.mode_of(1), "remove")
+        query = SimpleNamespace(data="xoalogo:mode:sticker", message=message, answer=AsyncMock())
+        _run(watermark_bot.handle_callback(query))
+        self.assertEqual(watermark_bot.mode_of(1), "sticker")
+        self.assertIn("nhãn dán", message.reply_text.await_args.args[0])
+
     def test_too_large_upload_is_rejected_with_hint(self) -> None:
-        watermark_bot._waiting.add("1")
+        watermark_bot._waiting["1"] = "remove"
         message = SimpleNamespace(
             chat_id=1, video=SimpleNamespace(file_size=60 * 1024 * 1024), caption="", reply_text=AsyncMock()
         )

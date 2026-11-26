@@ -193,9 +193,9 @@ class ImportBotTests(unittest.TestCase):
         (self.downloads / "x-full.mp4").write_bytes(b"v")
         scene = _buttons(import_bot.flow_video_markup(self.downloads / "x-scene1.mp4"))
         full = _buttons(import_bot.flow_video_markup(self.downloads / "x-full.mp4", with_publish=True))
-        self.assertEqual(len(scene), 1)
+        self.assertEqual([b.split(":")[1] for b in scene], ["logo", "stk"])
         self.assertTrue(scene[0].startswith("imp:logo:"))
-        self.assertEqual([b.split(":")[1] for b in full], ["logo", "cap"])
+        self.assertEqual([b.split(":")[1] for b in full], ["logo", "stk", "cap"])
         self.assertEqual(import_bot._get(scene[0].split(":")[-1])["video"], "x-scene1.mp4")
         self.assertIsNone(import_bot.flow_video_markup(self.outside / "missing.mp4"))
 
@@ -217,7 +217,7 @@ class ImportBotTests(unittest.TestCase):
         ):
             _run(notifier.send_video_to_telegram(str(full), "Khỉ", MagicMock(), scene_clips=clips))
         markups = [call.args[5] for call in send.await_args_list]
-        self.assertEqual([len(_buttons(m)) for m in markups], [1, 1, 2])
+        self.assertEqual([len(_buttons(m)) for m in markups], [2, 2, 3])  # + 🐒 Che logo
         self.assertTrue(all(_buttons(m)[0].startswith("imp:logo:") for m in markups))
 
     def test_missing_video_or_unknown_token_alerts(self) -> None:

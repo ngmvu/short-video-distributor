@@ -193,6 +193,7 @@ TELEGRAM_BOT_COMMANDS = [
     BotCommand("y", "Kho ý tưởng: /y <ý tưởng hoặc link video hot> cho lịch đăng"),
     BotCommand("import", "Import video từ Telegram → xóa logo / đăng MXH"),
     BotCommand("xoalogo", "Xóa logo ✦ Gemini/Veo khỏi video, không cắt khung"),
+    BotCommand("chelogo", "Che logo ✦ bằng nhãn dán khỉ & chú (vừa đủ che logo)"),
     BotCommand("log", "Xem log: crawl thoại, lỗi, mới nhất"),
     BotCommand("account", "Tài khoản Flow: tên, kiểm tra phiên đăng nhập"),
     BotCommand("server", "Trạng thái server, dừng worker ngầm, restart"),
@@ -1905,6 +1906,16 @@ async def handle_watermark_command(update: Update, context: ContextTypes.DEFAULT
     await watermark_bot.handle_command(message, list(context.args or []))
 
 
+async def handle_sticker_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.message
+    if message is None or not _is_authorized_chat(message.chat_id):
+        return
+    _reset_session(message.chat_id)
+    transcribe_bot.cancel(message.chat_id)
+    import_bot.cancel(message.chat_id)
+    await watermark_bot.handle_command(message, list(context.args or []), mode="sticker")
+
+
 async def handle_schedule_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.message
     if message is None or not _is_authorized_chat(message.chat_id):
@@ -2043,6 +2054,7 @@ def register_approval_handler(application: Any) -> None:
     application.add_handler(CommandHandler(transcribe_bot.COMMANDS, handle_transcribe_command))
     application.add_handler(CommandHandler(log_bot.COMMANDS, handle_log_command))
     application.add_handler(CommandHandler(watermark_bot.COMMANDS, handle_watermark_command))
+    application.add_handler(CommandHandler(watermark_bot.STICKER_COMMANDS, handle_sticker_command))
     application.add_handler(CommandHandler(import_bot.COMMANDS, handle_import_command))
     application.add_handler(CommandHandler(schedule_bot.COMMANDS, handle_schedule_command))
     application.add_handler(CommandHandler(idea_bank_bot.COMMANDS, handle_idea_bank_command))

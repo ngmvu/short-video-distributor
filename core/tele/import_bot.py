@@ -166,13 +166,18 @@ def _attachment(message: Any) -> Any | None:
 
 # ---------------------------------------------------------------- views
 
+def _logo_buttons(token: str) -> list[InlineKeyboardButton]:
+    return [
+        InlineKeyboardButton("🧽 Xóa logo ✦", callback_data=f"{CALLBACK_PREFIX}logo:{token}"),
+        InlineKeyboardButton("🐒 Che logo", callback_data=f"{CALLBACK_PREFIX}stk:{token}"),
+    ]
+
+
 def actions_markup(token: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
-            [
-                InlineKeyboardButton("🧽 Xóa logo ✦", callback_data=f"{CALLBACK_PREFIX}logo:{token}"),
-                InlineKeyboardButton("✨ Caption & đăng", callback_data=f"{CALLBACK_PREFIX}cap:{token}"),
-            ]
+            _logo_buttons(token),
+            [InlineKeyboardButton("✨ Caption & đăng", callback_data=f"{CALLBACK_PREFIX}cap:{token}")],
         ]
     )
 
@@ -185,9 +190,7 @@ def flow_video_markup(video: str | Path, with_publish: bool = False) -> InlineKe
     token = register(video)
     if with_publish:
         return actions_markup(token)
-    return InlineKeyboardMarkup(
-        [[InlineKeyboardButton("🧽 Xóa logo ✦", callback_data=f"{CALLBACK_PREFIX}logo:{token}")]]
-    )
+    return InlineKeyboardMarkup([_logo_buttons(token)])
 
 
 def _imported_text(video: Path) -> str:
@@ -370,10 +373,12 @@ async def handle_callback(query: Any) -> None:
         except BadRequest:
             pass
         return
-    if action == "logo":
-        await query.answer("🧽 Đang xóa logo…")
+    if action in {"logo", "stk"}:
+        sticker = action == "stk"
+        await query.answer("🐒 Đang che logo bằng nhãn dán…" if sticker else "🧽 Đang xóa logo…")
         watermark_bot.start_job(
-            query.message, local_path=_video_path(entry), markup_for=_markup_for_cleaned
+            query.message, local_path=_video_path(entry), markup_for=_markup_for_cleaned,
+            mode="sticker" if sticker else "remove",
         )
         return
     if action.startswith("t_"):

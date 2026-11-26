@@ -383,7 +383,7 @@ class TelegramInteractiveBotTests(unittest.TestCase):
             [command.command for command in TELEGRAM_BOT_COMMANDS],
             [
                 "gemini", "choice", "new", "direct", "hang_doi", "quality", "flow",
-                "thoai", "lich", "y", "import", "xoalogo", "log", "account", "server",
+                "thoai", "lich", "y", "import", "xoalogo", "chelogo", "log", "account", "server",
             ],
         )
 

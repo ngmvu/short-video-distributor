@@ -72,7 +72,8 @@ def config_text(config: dict[str, Any], now: datetime | None = None) -> str:
         f"💡 Số ý tưởng mỗi khung: <b>{config.get('ideas_per_slot')}</b> (bạn chọn 1 để duyệt)",
         f"🏷 Chủ đề: <b>{html.escape(config.get('topic') or 'lấy từ 🧠 Kho ý tưởng (/y)')}</b>"
         + ("" if config.get("topic") else f" — còn <b>{idea_bank.stats()['total']}</b> ý chưa dùng"),
-        f"🧽 Xóa logo ✦ trước khi đăng: <b>{'Có' if config.get('remove_logo') else 'Không'}</b>",
+        f"🧽 Logo ✦ trước khi đăng: <b>{ps.LOGO_MODE_LABELS[ps.logo_mode(config)]}</b>"
+        + (" (che bằng nhãn dán khỉ & chú)" if ps.logo_mode(config) == "sticker" else ""),
         f"🎬 Ghép outro mời đăng ký vào cuối: <b>{'Có' if config.get('append_outro') else 'Không'}</b>",
         f"🤖 Không duyệt sau <b>{_auto_label(config.get('auto_approve_minutes'))}</b> → "
         "tự duyệt ý tưởng Gemini chấm điểm cao nhất"
@@ -108,7 +109,7 @@ def config_markup(config: dict[str, Any]) -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton(f"⏱ Trước {config.get('lead_hours')}h", callback_data=f"{p}lead"),
             InlineKeyboardButton(f"💡 {config.get('ideas_per_slot')} ý tưởng", callback_data=f"{p}ideas"),
-            InlineKeyboardButton(f"🧽 Logo: {'Có' if config.get('remove_logo') else 'Không'}", callback_data=f"{p}logo"),
+            InlineKeyboardButton(f"🧽 Logo: {ps.LOGO_MODE_LABELS[ps.logo_mode(config)]}", callback_data=f"{p}logo"),
         ],
         [
             InlineKeyboardButton(f"🤖 Tự duyệt: {_auto_label(config.get('auto_approve_minutes'))}",
@@ -231,7 +232,9 @@ async def handle_callback(query: Any) -> None:
         await _refresh(query)
         return
     if action == "logo":
-        ps.update_config(remove_logo=not config.get("remove_logo"))
+        modes = ps.LOGO_MODES  # Xóa → Nhãn dán → Giữ nguyên → Xóa …
+        mode = modes[(modes.index(ps.logo_mode(config)) + 1) % len(modes)]
+        ps.update_config(logo_mode=mode, remove_logo=mode != "none")
         await query.answer()
         await _refresh(query)
         return
