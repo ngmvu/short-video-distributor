@@ -224,11 +224,11 @@ def list_flow_profiles() -> list[FlowProfile]:
                 profiles = profiles[idx:] + profiles[:idx]
                 break
 
-    # Free daily-refresh accounts first, then unknown, then paid; accounts out of credits until
-    # their next refresh go last. Within a group the configured order (and the active profile
-    # rotation above) is kept, since sort() is stable.
+    # Free accounts first (daily refresh or < FLOW_FREE_MAX_CREDITS; soonest refresh first), then
+    # unknown, then accounts with many credits; accounts out of credits until their next refresh go
+    # last. Otherwise the configured order (and the active profile rotation above) is kept.
     credits = flow_ui.load_profile_credits()
-    profiles.sort(key=lambda prof: flow_ui.profile_tier(credits.get(prof.name)))
+    profiles.sort(key=lambda prof: flow_ui.profile_sort_key(credits.get(prof.name)))
     return profiles
 
 

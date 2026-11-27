@@ -36,6 +36,7 @@ FLOW_SETTING_DEFAULTS: dict[str, str] = {
     "FLOW_ATTACH_VOICE": "true",          # also attach @Voice_* ingredients
     "FLOW_PROFILES": "d",                 # account profile order (comma separated)
     "FLOW_MIN_CREDITS": "20",             # switch to the next profile when credits drop below this (0 = off)
+    "FLOW_FREE_MAX_CREDITS": "60",        # accounts with fewer credits count as free and run first (0 = off)
 }
 
 FLOW_SETTING_CHOICES: dict[str, list[str]] = {
@@ -49,6 +50,7 @@ FLOW_SETTING_CHOICES: dict[str, list[str]] = {
     "FLOW_DOWNLOAD_QUALITY": ["1080", "720", "4k"],
     "FLOW_ATTACH_VOICE": ["true", "false"],
     "FLOW_MIN_CREDITS": ["20", "30", "50", "100", "0"],
+    "FLOW_FREE_MAX_CREDITS": ["60", "100", "200", "0"],
 }
 
 # (key, label, help, {value: display label}) — shared by the dashboard page and Telegram /flow.
@@ -71,6 +73,10 @@ FLOW_SETTINGS_FORM: tuple[tuple[str, str, str, dict[str, str]], ...] = (
     ("FLOW_MIN_CREDITS", "Chuyển tài khoản khi credit dưới",
      "Trước mỗi cảnh đọc số credit Flow; dưới mức này thì chuyển sang profile kế tiếp.",
      {"20": "20 credit", "30": "30 credit", "50": "50 credit", "100": "100 credit", "0": "Tắt kiểm tra"}),
+    ("FLOW_FREE_MAX_CREDITS", "Tài khoản miễn phí = dưới",
+     "Tài khoản còn ít credit hơn mức này (hoặc hồi credit hằng ngày) được coi là miễn phí và chạy TRƯỚC; "
+     "lỗi / hết credit thì chuyển sang tài khoản miễn phí khác, cuối cùng mới tới tài khoản nhiều credit.",
+     {"60": "60 credit", "100": "100 credit", "200": "200 credit", "0": "Tắt (chỉ theo hồi hằng ngày)"}),
 )
 
 
@@ -461,6 +467,11 @@ def min_credits() -> int:
     return int(raw) if raw.isdigit() else 20
 
 
+def free_max_credits() -> int:
+    raw = flow_setting("FLOW_FREE_MAX_CREDITS")
+    return int(raw) if raw.isdigit() else 60
+
+
 def parse_credits(text: str) -> int | None:
     """'491 tín dụng Google Flow' / '1,250 Google Flow credits' -> 491 / 1250."""
     for line in (text or "").splitlines():
@@ -651,13 +662,13 @@ def load_profile_credits() -> dict[str, dict[str, int]]:
         return {}
 
 
-# Account priority: spend free daily-refresh credits first (they are lost if unused by the next
-# refresh), keep the paid (monthly) accounts for when the free ones run dry.
+# Account priority: spend free accounts first — daily-refresh ones, or any account holding fewer
+# than FLOW_FREE_MAX_CREDITS (60) — and keep the accounts with many credits for when they run dry.
 TIER_DAILY, TIER_UNKNOWN, TIER_PAID, TIER_EXHAUSTED = 0, 1, 2, 3
 TIER_LABELS = {
-    TIER_DAILY: "miễn phí (hồi hằng ngày)",
+    TIER_DAILY: "miễn phí",
     TIER_UNKNOWN: "chưa rõ credit",
-    TIER_PAID: "trả phí",
+    TIER_PAID: "nhiều credit",
     TIER_EXHAUSTED: "hết credit, chờ hồi",
 }
 
@@ -668,9 +679,11 @@ def is_daily_plan(info: dict[str, Any] | None) -> bool:
 
 
 def profile_tier(
-    info: dict[str, Any] | None, now: float | None = None, threshold: int | None = None
+    info: dict[str, Any] | None, now: float | None = None, threshold: int | None = None,
+    free_max: int | None = None,
 ) -> int:
-    """Priority group of a profile from its last flow_credits.json entry (lower runs first)."""
+    """Priority group of a profile from its last flow_credits.json entry (lower runs first):
+    free (daily refresh, or fewer than FLOW_FREE_MAX_CREDITS) → unknown → many credits → exhausted."""
     import time
 
     if not info or info.get("credits") is None:
@@ -681,7 +694,19 @@ def profile_tier(
     refreshed_since = bool(reset_at and int(reset_at) <= now)
     if threshold > 0 and int(info["credits"]) < threshold and not refreshed_since:
         return TIER_EXHAUSTED
-    return TIER_DAILY if is_daily_plan(info) else TIER_PAID
+    free_max = free_max_credits() if free_max is None else free_max
+    if is_daily_plan(info) or (free_max > 0 and int(info["credits"]) < free_max):
+        return TIER_DAILY
+    return TIER_PAID
+
+
+def profile_sort_key(info: dict[str, Any] | None) -> tuple[int, float]:
+    """Tier first; among free accounts the one whose credits refresh soonest runs first
+    (its leftover credits are lost at the refresh anyway)."""
+    tier = profile_tier(info)
+    reset_at = (info or {}).get("reset_at")
+    soonest = float(reset_at) if tier == TIER_DAILY and reset_at else float("inf")
+    return tier, soonest
 
 
 def estimate_scene_seconds(scene: dict[str, Any]) -> int:

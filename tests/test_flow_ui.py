@@ -109,6 +109,31 @@ class FlowCreditsTests(unittest.TestCase):
         self.assertEqual(tier(empty_daily_refreshed), flow_ui.TIER_DAILY)
         self.assertTrue(flow_ui.is_daily_plan({"reset_text": "Credits refresh daily at 5:54 PM"}))
 
+    def test_accounts_under_60_credits_count_as_free_and_run_first(self) -> None:
+        """/account: e 50 · c 675 · a 300 · b 53 · d 50 · default 53 · f 5 (monthly reset texts)."""
+        import time
+
+        now = time.time()
+        hour, day = 3600, 86400
+        accounts = {
+            "e": (50, 20 * hour), "c": (675, 25 * day), "a": (300, 21 * day), "b": (53, 7 * day),
+            "d": (50, 9 * day), "default": (53, 7 * day), "f": (5, 58 * 60),
+        }
+        credits = {
+            name: {"credits": c, "reset_at": now + left, "reset_text": "Resets Dec 5 at 4:12 PM"}
+            for name, (c, left) in accounts.items()
+        }
+        with patch.object(flow_ui, "flow_setting", side_effect=lambda k: flow_ui.FLOW_SETTING_DEFAULTS[k]):
+            order = sorted(["d", "a", "b", "c", "e", "f", "default"],
+                           key=lambda name: flow_ui.profile_sort_key(credits[name]))
+            self.assertEqual(flow_ui.profile_tier({"credits": 59, "reset_text": "x"}), flow_ui.TIER_DAILY)
+            self.assertEqual(flow_ui.profile_tier({"credits": 60, "reset_text": "x"}), flow_ui.TIER_PAID)
+            self.assertEqual(
+                flow_ui.profile_tier({"credits": 50, "reset_text": "x"}, free_max=0), flow_ui.TIER_PAID
+            )
+        # free (< 60, soonest refresh first) → many credits → out of credits
+        self.assertEqual(order, ["e", "b", "default", "d", "a", "c", "f"])
+
     def test_list_flow_profiles_orders_by_tier_keeping_configured_order(self) -> None:
         import tempfile
         from pathlib import Path
