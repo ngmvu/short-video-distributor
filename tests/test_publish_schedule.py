@@ -242,9 +242,12 @@ class SkillIdeaGeneratorTests(unittest.TestCase):
     def _scene(self, lines=None, prompt=None) -> dict:
         return {
             "prompt": prompt or (
-                "Create a 10-second video.\n\nCHARACTER IDENTITY LOCK:\n@khi = THE MACAQUE\n\n"
-                "ACTION:\nThe man shows his phone.\n\nDIALOGUE:\nMan: \"câu bị gán nhầm\"\n\n"
-                "CAMERA:\nMedium shot.\n\nSTRICT VIDEO RULES:\nNo text."
+                "Scene 1 (10 seconds) — [HOOK]:\nFORMAT: Vertical 9:16, outdoor yard.\n\n"
+                "CHARACTER LOCK:\n@khi — LEFT SIDE: macaque, white tank top.\n@nguoi — RIGHT SIDE: man.\n\n"
+                "DIALOGUE — STRICT SPEAKER ORDER:\n[0s-4s]: Left monkey (@khi) speaks: Monkey: \"câu bị gán nhầm\"\n\n"
+                "ACTING AND TIMING:\n[0s-4s] the man raises his phone, Vietnamese dialogue continues.\n\n"
+                "AUDIO RULES:\nOnly the speaker moves their mouth; no extra dialogue.\n\n"
+                "NEGATIVE PROMPT:\nNo subtitles."
             ),
             "lines": lines or self.TWO,
         }
@@ -264,7 +267,8 @@ class SkillIdeaGeneratorTests(unittest.TestCase):
                 patch.object(idea_generator, "_load_recent_draft_titles", return_value=[]):
             ideas = idea_generator.generate_skill_ideas("giá vàng", 1)
         prompt = call.call_args.args[0]
-        self.assertIn("VIDEO-HÀI-KHỈ-NGƯỜI v16.1", prompt)  # the SKILL.md content is sent
+        self.assertIn("VIDEO-HÀI-KHỈ-NGƯỜI v16.6", prompt)
+        self.assertIn("Nếu bắt trend: chỉ mượn chủ đề", prompt)  # social-trend rule kept in code  # the SKILL.md content is sent
         self.assertIn("TOPIC / INPUT: giá vàng", prompt)
         self.assertIn("LUẬT CHỐNG LỘN VAI", prompt)
         idea = ideas[0]
@@ -280,10 +284,20 @@ class SkillIdeaGeneratorTests(unittest.TestCase):
         two, _, last = idea["scenes"]
         # code rewrites the DIALOGUE block from `lines`: Gemini's mislabelled line is gone
         self.assertNotIn("câu bị gán nhầm", two["prompt"])
-        self.assertIn('THE MAN @nguoi (RIGHT, grey T-shirt) speaks', two["prompt"])
-        self.assertIn('"Giảm 70% mà không mua thì phí!"', two["prompt"])
-        self.assertLess(two["prompt"].index("@nguoi (RIGHT"), two["prompt"].index("@khi (LEFT"))
-        self.assertLess(two["prompt"].index("DIALOGUE"), two["prompt"].index("CAMERA"))
+        self.assertIn(
+            '[0s-4s]: Right man (@nguoi) speaks: Man: "Giảm 70% mà không mua thì phí!" '
+            "while left monkey (@khi) listens.", two["prompt"],
+        )
+        self.assertIn(
+            '[5s-9s]: Left monkey (@khi) speaks with a high-pitched lively voice: Monkey: '
+            '"Không mua là tiết kiệm 100% đấy chú!" while right man (@nguoi) listens.', two["prompt"],
+        )
+        # the sections after DIALOGUE (v16.6 mục 6) survive the rewrite, in order
+        for section in ("CHARACTER LOCK:", "ACTING AND TIMING:", "AUDIO RULES:", "NEGATIVE PROMPT:"):
+            self.assertEqual(two["prompt"].count(section), 1, section)
+        self.assertLess(two["prompt"].index("DIALOGUE"), two["prompt"].index("ACTING AND TIMING"))
+        self.assertIn('[0s-6s]: Left monkey (@khi) speaks with a high-pitched lively voice: Monkey: '
+                      '"Sale săn hết tiền của chú!"', last["prompt"])
         self.assertEqual(two["speakers"], ["@nguoi", "@khi"])
         self.assertEqual(two["voice"], "")  # two speakers → no single voice asset
         self.assertEqual(two["dialogue"], '@nguoi: "Giảm 70% mà không mua thì phí!" | @khi: "Không mua là tiết kiệm 100% đấy chú!"')
@@ -308,7 +322,7 @@ class SkillIdeaGeneratorTests(unittest.TestCase):
         from core import flow_runner
 
         scene = {
-            "prompt": "CHARACTER IDENTITY LOCK:\n@khi = THE MACAQUE ...\n\n"
+            "prompt": "CHARACTER LOCK:\n@khi — LEFT SIDE: macaque ...\n\n"
                       + idea_generator.build_dialogue_block(self.TWO),
             "speakers": ["@nguoi", "@khi"], "first_frame": "@nguoi + @khi",
             "dialogue": "d", "voice": "",

@@ -189,7 +189,7 @@ def seasonal_hint(day: date) -> str:
 def weekday_topic(when: datetime) -> str:
     topic = (
         f"{WEEKDAY_NAMES[when.weekday()]} — {WEEKDAY_THEMES[when.weekday()]}. "
-        "Ưu tiên ghép với một trend mạng xã hội đang hot hợp chủ đề này (SKILL mục 8a)"
+        "Ưu tiên ghép với một trend mạng xã hội đang hot hợp chủ đề này"
     )
     hint = seasonal_hint(when.date())
     return f"{topic}. Nếu hợp thì lồng thêm dịp đang tới: {hint}" if hint else topic

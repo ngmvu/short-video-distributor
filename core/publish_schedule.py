@@ -1,4 +1,4 @@
-"""Daily auto-publish schedule: Gemini idea (SKILL v16.1) → Telegram approval → Flow → YouTube.
+"""Daily auto-publish schedule: Gemini idea (SKILL v16.6) → Telegram approval → Flow → YouTube.
 
 Configured from Telegram (/lich). For each daily post slot (e.g. 19:00):
   slot − lead_hours  → Gemini writes ideas, sent to Telegram with "🗓 Duyệt → đăng 19:00";

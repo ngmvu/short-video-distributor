@@ -1210,7 +1210,7 @@ def _scene_video_prompt(idea: dict[str, Any], scene: dict[str, Any]) -> str:
     character_tags = _scene_character_tags(scene)
     speakers = [s for s in (scene.get("speakers") or []) if isinstance(s, str)]
     if len(set(speakers)) >= 2:
-        # SKILL v16.1 turn-taking scene: the DIALOGUE block already says who speaks when; adding
+        # SKILL turn-taking scene: the DIALOGUE block already says who speaks when; adding
         # "X is the only speaker" here is what made Veo swap or merge the two characters' lines.
         prompt = (
             f"{prompt.rstrip().rstrip('.')}.\nPERFORMANCE: {speakers[0]} speaks first, then "
@@ -1277,9 +1277,10 @@ def _character_look(key: str, default: str) -> str:
 
 def _with_character_lock(prompt: str) -> str:
     """Append the fixed outfit/position lock unless the prompt already contains it verbatim."""
-    if "CHARACTER IDENTITY LOCK" in prompt.upper():
-        # SKILL v16.1 prompts carry their own lock (tank top + shorts + half helmet); appending the
-        # older mechanic-outfit lock here would contradict it.
+    if re.search(r"^\s*CHARACTER (?:IDENTITY )?LOCK\s*:", prompt, re.IGNORECASE | re.MULTILINE):
+        # SKILL prompts (v16.1 "CHARACTER IDENTITY LOCK", v16.6 "CHARACTER LOCK") and hand-written
+        # ones carry their own lock (tank top + shorts + half helmet); appending the older
+        # mechanic-outfit lock here would contradict it.
         return prompt
     looks = [
         _character_look("CHARACTER_1_LOOK", DEFAULT_CHARACTER_1_LOOK),

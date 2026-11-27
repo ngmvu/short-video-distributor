@@ -4,7 +4,7 @@ Config view: on/off, post times (➕ add by typing "11:30 19:00", tap a time to 
 before the slot Gemini writes ideas, ideas per slot, optional topic, remove logo ✦.
 
 tick(bot) runs every minute in the bot process: when a slot's generation time comes, Gemini writes
-ideas with SKILL v16.1 and each is sent with "🗓 Duyệt → đăng HH:MM". Approving queues it for Flow;
+ideas with SKILL v16.6 and each is sent with "🗓 Duyệt → đăng HH:MM". Approving queues it for Flow;
 after rendering, main._publish_scheduled_item uploads it to YouTube for that slot. If nothing is
 approved within auto_approve_minutes, tick approves the idea with the best Gemini viral_score.
 
@@ -88,7 +88,7 @@ def config_text(config: dict[str, Any], now: datetime | None = None) -> str:
             f"<b>{ps.describe_time(publish_at.isoformat())}</b>."
         )
     lines.append(
-        "\nQuy trình: tới giờ → lấy ý từ 🧠 kho (hết kho → trend → chủ đề theo thứ) → Gemini viết theo SKILL v16.1 → bạn bấm 🗓 Duyệt → Flow tạo video → "
+        "\nQuy trình: tới giờ → lấy ý từ 🧠 kho (hết kho → trend → chủ đề theo thứ) → Gemini viết theo SKILL v16.6 → bạn bấm 🗓 Duyệt → Flow tạo video → "
         "xóa logo → ghép outro → tải lên YouTube, hẹn công khai đúng giờ. Duyệt trễ sau giờ đăng thì đăng ngay khi xong."
     )
     return "\n".join(lines)
@@ -325,7 +325,7 @@ def draft_markup(draft_id: str, publish_at: datetime) -> InlineKeyboardMarkup:
 
 
 async def generate_for_slot(bot: Any, publish_at: datetime, count: int | None = None) -> int:
-    """Gemini (SKILL v16.1) → drafts carrying the slot → Telegram approval messages."""
+    """Gemini (SKILL v16.6) → drafts carrying the slot → Telegram approval messages."""
     from core.config import get_setting
     from core.gemini.idea_generator import generate_skill_ideas
     from core.tele.approval_bot import _format_idea
@@ -389,7 +389,7 @@ async def generate_for_slot(bot: Any, publish_at: datetime, count: int | None = 
                 reply_markup=draft_markup(draft_id, publish_at),
             )
             await asyncio.sleep(0.3)
-        LOGGER.info("Đã gửi %d ý tưởng (SKILL v16.1) cho lịch đăng %s.", len(ideas), when)
+        LOGGER.info("Đã gửi %d ý tưởng (SKILL v16.6) cho lịch đăng %s.", len(ideas), when)
         return len(ideas)
     finally:
         _running.discard(key)
